@@ -7,7 +7,15 @@ load_dotenv()
 # Telegram
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 TELEGRAM_CHANNEL_ID = os.getenv('TELEGRAM_CHANNEL_ID')  # @channel or -100123456789
+TELEGRAM_TOPIC_ID = os.getenv('TELEGRAM_TOPIC_ID')  # Topic/Thread ID for forum groups (optional)
 ADMIN_USER_IDS = [int(id.strip()) for id in os.getenv('ADMIN_USER_IDS', '').split(',') if id.strip()]
+
+# Parse topic ID as integer if provided
+if TELEGRAM_TOPIC_ID:
+    try:
+        TELEGRAM_TOPIC_ID = int(TELEGRAM_TOPIC_ID)
+    except ValueError:
+        TELEGRAM_TOPIC_ID = None
 
 # Database
 DATABASE_URL = os.getenv('DATABASE_URL')

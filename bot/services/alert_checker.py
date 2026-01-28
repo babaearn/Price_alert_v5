@@ -6,7 +6,7 @@ from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 
 from bot.config import (
     BASE_THRESHOLDS, EXTENDED_THRESHOLD_STEP, MAX_THRESHOLD,
-    GAINER_LINK, LOSER_LINK, TELEGRAM_CHANNEL_ID
+    GAINER_LINK, LOSER_LINK, TELEGRAM_CHANNEL_ID, TELEGRAM_TOPIC_ID
 )
 from bot.services.database import (
     get_bot_setting, get_24h_ago_price, get_session_start_price,
@@ -183,13 +183,20 @@ async def send_alert(
         # Create keyboard
         keyboard = create_alert_keyboard(symbol, pct_change)
 
-        # Send to channel
-        await bot.send_message(
-            chat_id=TELEGRAM_CHANNEL_ID,
-            text=message,
-            reply_markup=keyboard,
-            parse_mode='HTML'
-        )
+        # Build message parameters
+        send_params = {
+            'chat_id': TELEGRAM_CHANNEL_ID,
+            'text': message,
+            'reply_markup': keyboard,
+            'parse_mode': 'HTML'
+        }
+
+        # Add topic ID if configured (for forum groups)
+        if TELEGRAM_TOPIC_ID:
+            send_params['message_thread_id'] = TELEGRAM_TOPIC_ID
+
+        # Send to channel/topic
+        await bot.send_message(**send_params)
 
         logger.info(f"Alert sent: {symbol} {pct_change:+.2f}%")
         return True
