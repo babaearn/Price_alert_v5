@@ -1,0 +1,17 @@
+# Core Dependencies for Bybit Price Alert Bot
+# No CCXT - Pure Bybit REST API
+
+# Telegram Bot Framework
+python-telegram-bot==20.7
+
+# PostgreSQL Adapter
+psycopg2-binary==2.9.9
+
+# Task Scheduling
+APScheduler==3.10.4
+
+# HTTP Client for Bybit API
+requests==2.31.0
+
+# Environment Variables
+python-dotenv==1.0.0

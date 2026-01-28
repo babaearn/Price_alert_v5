@@ -1,0 +1,10 @@
+# Railway deployment configuration for Bybit Price Alert Bot
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+startCommand = "python -m bot.main"
+restartPolicyType = "ALWAYS"
+restartPolicyMaxRetries = 10
