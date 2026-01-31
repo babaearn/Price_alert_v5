@@ -10,6 +10,7 @@ from bot.config import (
     DEFAULT_MIN_VOLUME_USD, DEFAULT_SCAN_INTERVAL
 )
 from bot.utils.logger import logger
+from bot.utils.token_masker import mask_database_url, mask_error_message
 
 # Connection pool
 _conn = None
@@ -25,9 +26,10 @@ def get_connection():
             _conn = psycopg2.connect(DATABASE_URL)
             _conn.autocommit = False
             _cursor = _conn.cursor(cursor_factory=RealDictCursor)
-            logger.info("Database connection established")
+            logger.info(f"Database connection established: {mask_database_url(DATABASE_URL)}")
         except Exception as e:
-            logger.error(f"Failed to connect to database: {e}")
+            masked_error = mask_error_message(str(e))
+            logger.error(f"Failed to connect to database: {masked_error}")
             raise
 
     return _conn, _cursor
@@ -146,6 +148,17 @@ def create_schema():
     cursor.execute("""
         CREATE INDEX IF NOT EXISTS idx_session_prices_lookup
         ON session_prices(symbol, mode, session_date)
+    """)
+
+    # Custom thresholds for specific symbols (e.g., BTC every 2%, ETH every 3%)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS custom_thresholds (
+            symbol VARCHAR(20) PRIMARY KEY,
+            thresholds TEXT NOT NULL,
+            is_incremental BOOLEAN DEFAULT FALSE,
+            updated_at TIMESTAMP DEFAULT NOW(),
+            updated_by BIGINT
+        )
     """)
 
     conn.commit()
@@ -556,6 +569,143 @@ def cleanup_old_sessions(retention_days: int = 7) -> int:
         logger.error(f"Error cleaning up old sessions: {e}")
         conn.rollback()
         return 0
+
+
+# Custom threshold operations
+def get_custom_thresholds(symbol: str) -> tuple:
+    """
+    Get custom thresholds for a symbol.
+
+    Args:
+        symbol: Trading pair symbol (e.g., "BTCUSDT")
+
+    Returns:
+        tuple: (thresholds_list, is_incremental)
+            - thresholds_list: List of threshold values, or None if not set
+            - is_incremental: If True, thresholds[0] is the increment value
+    """
+    try:
+        conn, cursor = get_connection()
+
+        cursor.execute("""
+            SELECT thresholds, is_incremental FROM custom_thresholds
+            WHERE symbol = %s
+        """, (symbol,))
+
+        result = cursor.fetchone()
+
+        if result:
+            thresholds_str = result['thresholds']
+            is_incremental = result.get('is_incremental', False)
+
+            # Parse thresholds
+            thresholds = [int(t) for t in thresholds_str.split(',')]
+
+            return (thresholds, is_incremental)
+
+        return (None, False)
+
+    except Exception as e:
+        logger.error(f"Error getting custom thresholds for {symbol}: {e}")
+        return (None, False)
+
+
+def set_custom_thresholds(symbol: str, thresholds: list, is_incremental: bool, user_id: int = None):
+    """
+    Set custom thresholds for a symbol.
+
+    Args:
+        symbol: Trading pair symbol (e.g., "BTCUSDT")
+        thresholds: List of threshold values
+        is_incremental: If True, thresholds[0] is the increment (alert every X%)
+        user_id: Admin user ID who set this
+
+    Examples:
+        set_custom_thresholds("BTCUSDT", [2], True, user_id)
+        → Alert every ±2%: 2, 4, 6, 8, 10, 12, ...
+
+        set_custom_thresholds("XRPUSDT", [5, 15, 25], False, user_id)
+        → Alert at ±5%, ±15%, ±25%
+    """
+    try:
+        thresholds_str = ','.join(str(t) for t in thresholds)
+
+        conn, cursor = get_connection()
+
+        cursor.execute("""
+            INSERT INTO custom_thresholds
+            (symbol, thresholds, is_incremental, updated_at, updated_by)
+            VALUES (%s, %s, %s, NOW(), %s)
+            ON CONFLICT (symbol)
+            DO UPDATE SET
+                thresholds = EXCLUDED.thresholds,
+                is_incremental = EXCLUDED.is_incremental,
+                updated_at = NOW(),
+                updated_by = EXCLUDED.updated_by
+        """, (symbol, thresholds_str, is_incremental, user_id))
+
+        conn.commit()
+
+        mode = "every" if is_incremental else "at"
+        logger.info(f"Custom thresholds set for {symbol}: {mode} {thresholds}")
+
+    except Exception as e:
+        logger.error(f"Error setting custom thresholds for {symbol}: {e}")
+        conn.rollback()
+
+
+def delete_custom_thresholds(symbol: str) -> bool:
+    """
+    Delete custom thresholds for a symbol (reset to default).
+
+    Args:
+        symbol: Trading pair symbol
+
+    Returns:
+        True if deleted, False if not found or error
+    """
+    try:
+        conn, cursor = get_connection()
+
+        cursor.execute("""
+            DELETE FROM custom_thresholds WHERE symbol = %s
+        """, (symbol,))
+
+        deleted = cursor.rowcount > 0
+        conn.commit()
+
+        if deleted:
+            logger.info(f"Custom thresholds deleted for {symbol}")
+
+        return deleted
+
+    except Exception as e:
+        logger.error(f"Error deleting custom thresholds for {symbol}: {e}")
+        conn.rollback()
+        return False
+
+
+def get_all_custom_thresholds() -> List[Dict]:
+    """
+    Get all custom thresholds.
+
+    Returns:
+        List of dictionaries with symbol, thresholds, is_incremental
+    """
+    try:
+        conn, cursor = get_connection()
+
+        cursor.execute("""
+            SELECT symbol, thresholds, is_incremental, updated_at
+            FROM custom_thresholds
+            ORDER BY symbol
+        """)
+
+        return cursor.fetchall()
+
+    except Exception as e:
+        logger.error(f"Error getting all custom thresholds: {e}")
+        return []
 
 
 def close_connection():

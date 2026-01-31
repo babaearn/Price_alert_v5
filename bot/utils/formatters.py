@@ -5,7 +5,15 @@ from bot.config import GAINER_LINK, LOSER_LINK
 def format_alert_message(symbol: str, current_price: float, reference_price: float,
                          pct_change: float, volume_24h: float) -> str:
     """
-    Format Telegram alert message.
+    Format Telegram alert message with improved design.
+
+    New Format:
+    🚀 PUMP ALERT! (+10.00%)
+
+    💰 BTC/USDT
+    📈 $25,000 → $27,500
+    📊 +10.00% (24h)
+    💵 Volume: $2.5B
 
     Args:
         symbol: Trading pair symbol (e.g., BTCUSDT)
@@ -17,13 +25,17 @@ def format_alert_message(symbol: str, current_price: float, reference_price: flo
     Returns:
         Formatted alert message
     """
-    # Determine alert type
+    # Determine alert type with new format
     if pct_change > 0:
-        alert_type = "ALERT PUMP!"
-        emoji = "🚀"
+        title_emoji = "🚀"
+        alert_type = "PUMP ALERT!"
+        price_emoji = "📈"
+        pct_display = f"+{abs(pct_change):.2f}%"
     else:
-        alert_type = "ALERT DUMP!"
-        emoji = "📉"
+        title_emoji = "📉"
+        alert_type = "DUMP ALERT!"
+        price_emoji = "📉"
+        pct_display = f"{pct_change:.2f}%"
 
     # Format prices based on value
     if current_price >= 1:
@@ -42,10 +54,10 @@ def format_alert_message(symbol: str, current_price: float, reference_price: flo
         volume_str = f"${volume_24h:,.0f}"
 
     message = f"""
-{emoji} <b>{alert_type}</b> ({pct_change:+.2f}%)
+{title_emoji} <b>{alert_type}</b> ({pct_display})
 
 💰 <b>{symbol}</b>
-📈 ${reference_price:{price_format}} → ${current_price:{price_format}}
+{price_emoji} ${reference_price:{price_format}} → ${current_price:{price_format}}
 📊 {pct_change:+.2f}% (24h)
 💵 Volume: {volume_str}
 """

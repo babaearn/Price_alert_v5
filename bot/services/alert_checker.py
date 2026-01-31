@@ -10,44 +10,99 @@ from bot.config import (
 )
 from bot.services.database import (
     get_bot_setting, get_24h_ago_price, get_session_start_price,
-    can_fire_alert, record_alert
+    can_fire_alert, record_alert, get_custom_thresholds
 )
 from bot.utils.formatters import format_alert_message, get_adjust_link
 from bot.utils.logger import logger
 
 
-def get_crossed_thresholds(pct_change: float) -> List[int]:
+def get_crossed_thresholds(pct_change: float, custom_thresholds: List[int] = None,
+                           is_incremental: bool = False) -> List[int]:
     """
     Determine which thresholds were crossed.
 
-    Threshold sequence:
-    - Base: ±10%, ±30%, ±60%, ±80%, ±100%
-    - After ±100%: Every ±50% (±150%, ±200%, ±250%, ..., ±950%)
+    Supports two modes:
+    1. Standard mode (default): Specific thresholds like [10, 30, 60, 80, 100]
+    2. Incremental mode: Alert every X% (e.g., [2] means every 2%)
 
     Args:
         pct_change: Percentage change from reference price
+        custom_thresholds: Custom thresholds for this symbol (optional)
+        is_incremental: If True, custom_thresholds[0] is the increment
 
     Returns:
         List of crossed thresholds (positive or negative based on direction)
+
+    Examples:
+        # Standard mode
+        >>> get_crossed_thresholds(25, None, False)
+        [10]  # Only 10% crossed, 30% not yet
+
+        # Incremental mode (every 2%)
+        >>> get_crossed_thresholds(7, [2], True)
+        [2, 4, 6]  # Hit 2%, 4%, 6%, but not 8% yet
+
+        >>> get_crossed_thresholds(-11, [3], True)
+        [-3, -6, -9]  # Hit -3%, -6%, -9%, but not -12% yet
     """
     thresholds = []
     abs_change = abs(pct_change)
+    sign = 1 if pct_change >= 0 else -1
 
-    # Base thresholds
-    for threshold in BASE_THRESHOLDS:
+    if custom_thresholds and is_incremental:
+        # INCREMENTAL MODE: Alert every X%
+        # Example: BTC with increment=2%, change=7% → fire [2, 4, 6]
+        increment = custom_thresholds[0]
+
+        # Calculate how many increments have been crossed
+        num_increments = int(abs_change / increment)
+
+        # Generate all crossed thresholds
+        for i in range(1, num_increments + 1):
+            threshold = i * increment
+            thresholds.append(threshold * sign)
+
+        return thresholds
+
+    # STANDARD MODE: Specific thresholds
+    # Use custom thresholds if provided, otherwise use defaults
+    base_thresholds = custom_thresholds if custom_thresholds else BASE_THRESHOLDS
+
+    for threshold in base_thresholds:
         if abs_change >= threshold:
-            thresholds.append(threshold if pct_change > 0 else -threshold)
+            thresholds.append(threshold * sign)
 
-    # Extended thresholds (after 100%)
-    if abs_change >= 100:
-        # Calculate how many 50% increments past 100%
+    # Extended thresholds (after 100%) - only for standard mode
+    if abs_change >= 100 and not custom_thresholds:
         current_threshold = 100 + EXTENDED_THRESHOLD_STEP
 
         while current_threshold <= MAX_THRESHOLD and abs_change >= current_threshold:
-            thresholds.append(current_threshold if pct_change > 0 else -current_threshold)
+            thresholds.append(current_threshold * sign)
             current_threshold += EXTENDED_THRESHOLD_STEP
 
     return thresholds
+
+
+def get_symbol_thresholds(symbol: str) -> Tuple[Optional[List[int]], bool]:
+    """
+    Get thresholds for a specific symbol.
+
+    Checks for custom thresholds first, falls back to defaults.
+
+    Args:
+        symbol: Trading pair symbol
+
+    Returns:
+        Tuple of (thresholds_list, is_incremental)
+    """
+    # Check for custom thresholds
+    custom, is_incremental = get_custom_thresholds(symbol)
+
+    if custom:
+        return (custom, is_incremental)
+
+    # Return None to use defaults
+    return (None, False)
 
 
 def get_highest_crossed_threshold(pct_change: float) -> Optional[int]:
@@ -216,6 +271,8 @@ async def check_and_send_alerts(
     """
     Check if thresholds crossed and send alerts.
 
+    Supports custom incremental thresholds per symbol.
+
     Args:
         bot: Telegram bot instance
         symbol: Trading pair symbol
@@ -235,11 +292,19 @@ async def check_and_send_alerts(
     # Calculate percentage change
     pct_change = calculate_percentage_change(current_price, reference_price)
 
+    # Get custom thresholds for this symbol (if any)
+    custom_thresholds, is_incremental = get_symbol_thresholds(symbol)
+
     # Get crossed thresholds
-    crossed_thresholds = get_crossed_thresholds(pct_change)
+    crossed_thresholds = get_crossed_thresholds(pct_change, custom_thresholds, is_incremental)
 
     if not crossed_thresholds:
         return False, 0
+
+    # Log if using custom thresholds
+    if custom_thresholds:
+        mode_str = f"every ±{custom_thresholds[0]}%" if is_incremental else f"at {custom_thresholds}"
+        logger.debug(f"{symbol}: Using custom thresholds ({mode_str})")
 
     # Check each threshold
     alerts_sent = 0

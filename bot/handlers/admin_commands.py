@@ -2,8 +2,11 @@
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from bot.config import ADMIN_USER_IDS
-from bot.services.database import get_bot_setting, set_bot_setting
+from bot.config import ADMIN_USER_IDS, BASE_THRESHOLDS
+from bot.services.database import (
+    get_bot_setting, set_bot_setting,
+    set_custom_thresholds, delete_custom_thresholds, get_all_custom_thresholds
+)
 from bot.services.session_manager import force_reset_sessions
 from bot.utils.validators import is_valid_mode, parse_volume_amount
 from bot.utils.formatters import format_volume
@@ -254,3 +257,177 @@ async def cmd_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Your User ID: <code>{user_id}</code>",
             parse_mode='HTML'
         )
+
+
+async def cmd_setthreshold(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Dynamic threshold command handler.
+
+    Works for any symbol: /btc 2%, /eth 3%, /sol 5%
+
+    This sets incremental alerts - e.g., /btc 2% means alert every ±2%:
+    ±2%, ±4%, ±6%, ±8%, ±10%, ±12%, etc.
+    """
+    user_id = update.effective_user.id
+
+    if not is_admin(user_id):
+        await update.message.reply_text("❌ Admin only command")
+        return
+
+    # Extract symbol from command (e.g., "/btc" -> "BTC")
+    command = update.message.text.split()[0][1:].upper()
+
+    if not context.args:
+        await update.message.reply_text(
+            f"❌ <b>Usage:</b> <code>/{command.lower()} &lt;percentage&gt;</code>\n\n"
+            f"<b>Example:</b> <code>/{command.lower()} 2%</code>\n"
+            f"This will alert EVERY ±2%: ±2%, ±4%, ±6%, ±8%, ...\n\n"
+            f"<b>Works for any symbol:</b>\n"
+            f"<code>/btc 2%</code> - BTC alerts every ±2%\n"
+            f"<code>/eth 3%</code> - ETH alerts every ±3%\n"
+            f"<code>/sol 5%</code> - SOL alerts every ±5%",
+            parse_mode='HTML'
+        )
+        return
+
+    try:
+        # Parse percentage (remove % if present)
+        threshold_str = context.args[0].rstrip('%')
+        increment = int(threshold_str)
+
+        if increment < 1 or increment > 50:
+            await update.message.reply_text(
+                "❌ Percentage must be between 1% and 50%"
+            )
+            return
+
+        symbol = f"{command}USDT"
+
+        # Save as incremental threshold
+        set_custom_thresholds(
+            symbol=symbol,
+            thresholds=[increment],
+            is_incremental=True,
+            user_id=user_id
+        )
+
+        # Generate example thresholds
+        examples = [increment * i for i in range(1, 6)]
+        examples_str = ', '.join(f'±{t}%' for t in examples)
+
+        await update.message.reply_text(
+            f"✅ <b>Incremental Alerts Set for {symbol}</b>\n\n"
+            f"📊 <b>Alert every ±{increment}%</b>\n"
+            f"🔔 Examples: {examples_str}, ...\n\n"
+            f"Next alerts will fire at every ±{increment}% move!",
+            parse_mode='HTML'
+        )
+
+        logger.info(f"Custom threshold set for {symbol}: every ±{increment}% by user {user_id}")
+
+    except ValueError:
+        await update.message.reply_text("❌ Invalid percentage value. Use a number like: 2, 3, 5")
+    except Exception as e:
+        logger.error(f"Error setting threshold: {e}")
+        await update.message.reply_text(f"❌ Error: {str(e)}")
+
+
+async def cmd_listthresholds(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /listthresholds - List all custom thresholds
+
+    Admin only. Shows all symbols with custom thresholds.
+    """
+    user_id = update.effective_user.id
+
+    if not is_admin(user_id):
+        await update.message.reply_text("❌ Admin only command")
+        return
+
+    try:
+        results = get_all_custom_thresholds()
+
+        if not results:
+            default_str = ', '.join(f'±{t}%' for t in BASE_THRESHOLDS)
+            await update.message.reply_text(
+                "📊 <b>Custom Thresholds</b>\n\n"
+                "No custom thresholds configured.\n\n"
+                f"<b>Default:</b> {default_str}",
+                parse_mode='HTML'
+            )
+            return
+
+        message = "📊 <b>Custom Thresholds</b>\n\n"
+
+        for row in results:
+            symbol = row['symbol']
+            thresholds_str = row['thresholds']
+            is_incremental = row.get('is_incremental', False)
+
+            if is_incremental:
+                increment = thresholds_str
+                message += f"• <b>{symbol}</b>: Every ±{increment}%\n"
+            else:
+                thresholds = ', '.join(f'±{t}%' for t in thresholds_str.split(','))
+                message += f"• <b>{symbol}</b>: {thresholds}\n"
+
+        default_str = ', '.join(f'±{t}%' for t in BASE_THRESHOLDS)
+        message += f"\n🔄 <b>Default:</b> {default_str}"
+
+        await update.message.reply_text(message, parse_mode='HTML')
+
+    except Exception as e:
+        logger.error(f"Error listing thresholds: {e}")
+        await update.message.reply_text(f"❌ Error: {str(e)}")
+
+
+async def cmd_resetthreshold(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /resetthreshold <SYMBOL> - Reset symbol to default thresholds
+
+    Admin only. Removes custom threshold for a symbol.
+    Example: /resetthreshold BTC
+    """
+    user_id = update.effective_user.id
+
+    if not is_admin(user_id):
+        await update.message.reply_text("❌ Admin only command")
+        return
+
+    if not context.args:
+        await update.message.reply_text(
+            "❌ <b>Usage:</b> <code>/resetthreshold &lt;SYMBOL&gt;</code>\n\n"
+            "<b>Example:</b> <code>/resetthreshold BTC</code>",
+            parse_mode='HTML'
+        )
+        return
+
+    symbol_input = context.args[0].upper()
+
+    # Add USDT if not present
+    if not symbol_input.endswith('USDT'):
+        symbol = f"{symbol_input}USDT"
+    else:
+        symbol = symbol_input
+
+    try:
+        deleted = delete_custom_thresholds(symbol)
+
+        if deleted:
+            default_str = ', '.join(f'±{t}%' for t in BASE_THRESHOLDS)
+            await update.message.reply_text(
+                f"✅ <b>{symbol}</b> reset to default thresholds\n\n"
+                f"<b>Default:</b> {default_str}",
+                parse_mode='HTML'
+            )
+            logger.info(f"Custom threshold deleted for {symbol} by user {user_id}")
+        else:
+            await update.message.reply_text(
+                f"ℹ️ <b>{symbol}</b> has no custom thresholds\n"
+                f"(Already using defaults)",
+                parse_mode='HTML'
+            )
+
+    except Exception as e:
+        logger.error(f"Error resetting threshold: {e}")
+        await update.message.reply_text(f"❌ Error: {str(e)}")

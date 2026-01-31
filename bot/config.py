@@ -1,8 +1,13 @@
 """Configuration and environment variables"""
 import os
+import logging
 from dotenv import load_dotenv
 
+from bot.utils.token_masker import mask_token, mask_database_url
+
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 # Telegram
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
@@ -68,3 +73,19 @@ def validate_config():
         errors.append("ADMIN_USER_IDS is required (at least one admin)")
 
     return errors
+
+
+def log_masked_config():
+    """Log configuration with masked credentials (safe for production logs)"""
+    logger.info("=" * 50)
+    logger.info("BOT CONFIGURATION LOADED")
+    logger.info("=" * 50)
+    logger.info(f"Bot Token: {mask_token(TELEGRAM_BOT_TOKEN)}")
+    logger.info(f"Channel ID: {TELEGRAM_CHANNEL_ID}")
+    logger.info(f"Topic ID: {TELEGRAM_TOPIC_ID or 'Not configured'}")
+    logger.info(f"Admin IDs: {len(ADMIN_USER_IDS)} configured")
+    logger.info(f"Database: {mask_database_url(DATABASE_URL)}")
+    logger.info(f"Min Volume: ${DEFAULT_MIN_VOLUME_USD:,.0f}")
+    logger.info(f"Scan Interval: {DEFAULT_SCAN_INTERVAL}s")
+    logger.info(f"Default Thresholds: {BASE_THRESHOLDS}")
+    logger.info("=" * 50)

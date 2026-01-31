@@ -68,6 +68,13 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 /pause - Pause scanner
 /resume - Resume scanner
 /resetsession - Force session reset (Model 1)
+
+🎯 <b>Custom Threshold Commands:</b>
+/btc 2% - BTC alerts every ±2%
+/eth 3% - ETH alerts every ±3%
+/&lt;symbol&gt; &lt;%&gt; - Set any symbol threshold
+/listthresholds - Show all custom thresholds
+/resetthreshold BTC - Reset to default
 """
 
     await update.message.reply_text(message.strip(), parse_mode='HTML')
