@@ -783,7 +783,8 @@ def record_milestone_alert(symbol: str, milestone: float, direction: str,
                            price: float, current_time: int):
     """Record milestone alert in history for deduplication."""
     try:
-        expires_at = current_time + 86400  # 24 hours
+        # 1 hour cooldown for milestone alerts (prevents spam on price oscillation)
+        expires_at = current_time + 3600  # 1 hour
 
         conn, cursor = get_connection()
 
