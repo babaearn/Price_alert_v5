@@ -93,34 +93,58 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     /status - Show bot status
 
-    Displays current configuration and last scan info.
+    Displays current configuration and all active settings.
     """
     settings = get_all_settings()
     mode = settings.get('mode', 'futures')
     model = settings.get('model', 'model2')
-    min_volume = float(settings.get('min_volume_usd', 5000000))
-    scan_interval = settings.get('scan_interval', '30')
     paused = settings.get('paused', 'false') == 'true'
+
+    # Volume settings
+    vol_futures = float(settings.get('min_volume_futures', 25000000))
+    vol_spot = float(settings.get('min_volume_spot', 25000000))
+
+    # BTC/ETH alert settings
+    btc_eth_mode = settings.get('btc_eth_alert_mode', 'percentage')
+    btc_pct = settings.get('btc_percentage', '3')
+    eth_pct = settings.get('eth_percentage', '2')
+    btc_milestone = settings.get('btc_milestone', '1000')
+    eth_milestone = settings.get('eth_milestone', '100')
+    cooldown = settings.get('milestone_cooldown', '60')
 
     # Status indicators
     if paused:
         status_emoji = "⏸️ PAUSED"
     elif is_monitor_running():
-        status_emoji = "🔄 ACTIVE"
+        status_emoji = "🟢 ACTIVE"
     else:
-        status_emoji = "❌ STOPPED"
+        status_emoji = "🔴 STOPPED"
 
-    mode_display = "Futures (Linear)" if mode == 'futures' else "Spot"
-    model_display = "Model 1 (Session-Based)" if model == 'model1' else "Model 2 (Rolling 24H)"
+    mode_display = "FUTURES" if mode == 'futures' else "SPOT"
+    active_volume = format_volume(vol_futures) if mode == 'futures' else format_volume(vol_spot)
 
     message = f"""
 🤖 <b>Bot Status</b>
 
-🔄 Scanner: <b>{status_emoji}</b>
-📊 Mode: <b>{mode_display}</b>
-📈 Model: <b>{model_display}</b>
-🎯 Min Volume: <b>{format_volume(min_volume)}</b>
-⏱️ Scan Interval: <b>{scan_interval} seconds</b>
+<b>Scanner:</b> {status_emoji}
+<b>Mode:</b> {mode_display}
+
+📊 <b>Volume Settings</b>
+▸ Futures: {format_volume(vol_futures)}
+▸ Spot: {format_volume(vol_spot)}
+▸ Active: {active_volume} ({mode})
+
+💰 <b>BTC/ETH Alert Mode:</b> {btc_eth_mode.upper()}
+"""
+
+    if btc_eth_mode == 'milestone':
+        message += f"""▸ BTC: Every ${btc_milestone}
+▸ ETH: Every ${eth_milestone}
+▸ Cooldown: {cooldown} min
+"""
+    else:
+        message += f"""▸ BTC: Every ±{btc_pct}%
+▸ ETH: Every ±{eth_pct}%
 """
 
     # Get last scan info
@@ -132,28 +156,15 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
             now = datetime.utcnow()
             diff = now - scan_time
             if diff.total_seconds() < 60:
-                time_ago = f"{int(diff.total_seconds())} seconds ago"
+                time_ago = f"{int(diff.total_seconds())}s ago"
             elif diff.total_seconds() < 3600:
-                time_ago = f"{int(diff.total_seconds() / 60)} minutes ago"
+                time_ago = f"{int(diff.total_seconds() / 60)}m ago"
             else:
-                time_ago = f"{int(diff.total_seconds() / 3600)} hours ago"
+                time_ago = f"{int(diff.total_seconds() / 3600)}h ago"
 
             message += f"""
-📈 <b>Last Scan:</b>
-- Time: {time_ago}
-- Pairs: {last_scan['pairs_scanned']}
-- Alerts: {last_scan['alerts_sent']}
-- Duration: {last_scan['duration_ms']}ms
-"""
-
-    # Get 24h stats
-    stats = get_scan_stats(24)
-    if stats['total_scans'] > 0:
-        message += f"""
-📊 <b>Today's Stats:</b>
-- Total Scans: {stats['total_scans']:,}
-- Alerts Sent: {stats['total_alerts']:,}
-- Errors: {stats['total_errors']:,}
+📈 <b>Last Scan:</b> {time_ago}
+▸ Pairs: {last_scan['pairs_scanned']} | Alerts: {last_scan['alerts_sent']}
 """
 
     await update.message.reply_text(message.strip(), parse_mode='HTML')
