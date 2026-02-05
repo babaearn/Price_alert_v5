@@ -64,7 +64,9 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 /mode &lt;futures|spot&gt; - Switch market mode
 /model1 - Session-based (00:00 UTC reset)
 /model2 - Rolling 24h window (default)
-/volume &lt;amount&gt; - Set min volume filter
+/volume &lt;amount&gt; - Set min volume (both modes)
+/volume1 &lt;amount&gt; - Set min volume for futures
+/volume2 &lt;amount&gt; - Set min volume for spot
 /pause - Pause scanner
 /resume - Resume scanner
 /resetsession - Force session reset (Model 1)
@@ -75,6 +77,12 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 /&lt;symbol&gt; &lt;%&gt; - Set any symbol threshold
 /listthresholds - Show all custom thresholds
 /resetthreshold BTC - Reset to default
+
+📊 <b>BTC/ETH Alert Mode:</b>
+/percentage - Use percentage mode (±X%)
+/milestone - Use milestone mode (price levels)
+/btc 1000 - Set BTC milestone step ($1000)
+/eth 100 - Set ETH milestone step ($100)
 """
 
     await update.message.reply_text(message.strip(), parse_mode='HTML')

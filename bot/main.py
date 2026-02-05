@@ -27,9 +27,10 @@ from bot.handlers.user_commands import (
     cmd_start, cmd_help, cmd_status, cmd_stats, cmd_listpairs
 )
 from bot.handlers.admin_commands import (
-    cmd_mode, cmd_model1, cmd_model2, cmd_volume,
+    cmd_mode, cmd_model1, cmd_model2, cmd_volume, cmd_volume1, cmd_volume2,
     cmd_pause, cmd_resume, cmd_resetsession, cmd_admin,
-    cmd_setthreshold, cmd_listthresholds, cmd_resetthreshold
+    cmd_setthreshold, cmd_listthresholds, cmd_resetthreshold,
+    cmd_percentage, cmd_milestone
 )
 from bot.handlers.callbacks import handle_callback_query
 from bot.utils.logger import logger
@@ -118,10 +119,14 @@ def main():
     application.add_handler(CommandHandler("model1", cmd_model1))
     application.add_handler(CommandHandler("model2", cmd_model2))
     application.add_handler(CommandHandler("volume", cmd_volume))
+    application.add_handler(CommandHandler("volume1", cmd_volume1))
+    application.add_handler(CommandHandler("volume2", cmd_volume2))
     application.add_handler(CommandHandler("pause", cmd_pause))
     application.add_handler(CommandHandler("resume", cmd_resume))
     application.add_handler(CommandHandler("resetsession", cmd_resetsession))
     application.add_handler(CommandHandler("admin", cmd_admin))
+    application.add_handler(CommandHandler("percentage", cmd_percentage))
+    application.add_handler(CommandHandler("milestone", cmd_milestone))
 
     # Register threshold commands
     application.add_handler(CommandHandler("listthresholds", cmd_listthresholds))

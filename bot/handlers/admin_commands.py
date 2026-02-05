@@ -153,6 +153,156 @@ async def cmd_volume(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"Volume changed to {amount} by user {user_id}")
 
 
+async def cmd_volume1(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /volume1 <amount> - Set minimum volume filter for FUTURES
+
+    Admin only. Sets minimum 24h trading volume threshold for futures mode.
+    """
+    user_id = update.effective_user.id
+
+    if not is_admin(user_id):
+        await update.message.reply_text("❌ Admin only command")
+        return
+
+    if not context.args or len(context.args) != 1:
+        current_volume = float(get_bot_setting('min_volume_futures') or 25000000)
+        await update.message.reply_text(
+            f"📊 <b>Futures Volume Filter</b>\n\n"
+            f"Current: <b>{format_volume(current_volume)}</b>\n\n"
+            f"Usage: /volume1 &lt;amount&gt;\n"
+            f"Example: /volume1 25M",
+            parse_mode='HTML'
+        )
+        return
+
+    amount = parse_volume_amount(context.args[0])
+
+    if amount is None or amount < 0:
+        await update.message.reply_text(
+            "❌ Invalid amount. Use: 25M or 25000000\n"
+            "Supported suffixes: K, M, B"
+        )
+        return
+
+    set_bot_setting('min_volume_futures', str(int(amount)), str(user_id))
+
+    await update.message.reply_text(
+        f"✅ <b>Futures</b> volume filter updated\n"
+        f"Min 24h Volume: <b>{format_volume(amount)}</b>",
+        parse_mode='HTML'
+    )
+
+    logger.info(f"Futures volume changed to {amount} by user {user_id}")
+
+
+async def cmd_volume2(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /volume2 <amount> - Set minimum volume filter for SPOT
+
+    Admin only. Sets minimum 24h trading volume threshold for spot mode.
+    """
+    user_id = update.effective_user.id
+
+    if not is_admin(user_id):
+        await update.message.reply_text("❌ Admin only command")
+        return
+
+    if not context.args or len(context.args) != 1:
+        current_volume = float(get_bot_setting('min_volume_spot') or 25000000)
+        await update.message.reply_text(
+            f"📊 <b>Spot Volume Filter</b>\n\n"
+            f"Current: <b>{format_volume(current_volume)}</b>\n\n"
+            f"Usage: /volume2 &lt;amount&gt;\n"
+            f"Example: /volume2 25M",
+            parse_mode='HTML'
+        )
+        return
+
+    amount = parse_volume_amount(context.args[0])
+
+    if amount is None or amount < 0:
+        await update.message.reply_text(
+            "❌ Invalid amount. Use: 25M or 25000000\n"
+            "Supported suffixes: K, M, B"
+        )
+        return
+
+    set_bot_setting('min_volume_spot', str(int(amount)), str(user_id))
+
+    await update.message.reply_text(
+        f"✅ <b>Spot</b> volume filter updated\n"
+        f"Min 24h Volume: <b>{format_volume(amount)}</b>",
+        parse_mode='HTML'
+    )
+
+    logger.info(f"Spot volume changed to {amount} by user {user_id}")
+
+
+async def cmd_percentage(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /percentage - Switch BTC/ETH to percentage-based alerts
+
+    Admin only. Switches BTC and ETH alerts to percentage mode.
+    BTC: every ±3%, ETH: every ±2%
+    """
+    user_id = update.effective_user.id
+
+    if not is_admin(user_id):
+        await update.message.reply_text("❌ Admin only command")
+        return
+
+    set_bot_setting('btc_eth_alert_mode', 'percentage', str(user_id))
+
+    btc_pct = get_bot_setting('btc_percentage') or '3'
+    eth_pct = get_bot_setting('eth_percentage') or '2'
+
+    await update.message.reply_text(
+        f"✅ <b>Percentage Mode Activated</b>\n\n"
+        f"📊 BTC/ETH alerts now use percentage thresholds:\n\n"
+        f"• <b>BTC:</b> Every ±{btc_pct}%\n"
+        f"  (±{btc_pct}%, ±{int(btc_pct)*2}%, ±{int(btc_pct)*3}%, ...)\n\n"
+        f"• <b>ETH:</b> Every ±{eth_pct}%\n"
+        f"  (±{eth_pct}%, ±{int(eth_pct)*2}%, ±{int(eth_pct)*3}%, ...)\n\n"
+        f"Use /btc &lt;%&gt; or /eth &lt;%&gt; to change percentage.",
+        parse_mode='HTML'
+    )
+
+    logger.info(f"BTC/ETH alert mode changed to percentage by user {user_id}")
+
+
+async def cmd_milestone(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /milestone - Switch BTC/ETH to price milestone alerts
+
+    Admin only. Switches BTC and ETH alerts to milestone mode.
+    BTC: every $1000 (90000, 91000, 92000), ETH: every $100 (3100, 3200, 3300)
+    """
+    user_id = update.effective_user.id
+
+    if not is_admin(user_id):
+        await update.message.reply_text("❌ Admin only command")
+        return
+
+    set_bot_setting('btc_eth_alert_mode', 'milestone', str(user_id))
+
+    btc_milestone = get_bot_setting('btc_milestone') or '1000'
+    eth_milestone = get_bot_setting('eth_milestone') or '100'
+
+    await update.message.reply_text(
+        f"✅ <b>Milestone Mode Activated</b>\n\n"
+        f"📊 BTC/ETH alerts now use price milestones:\n\n"
+        f"• <b>BTC:</b> Every ${btc_milestone}\n"
+        f"  ($90,000, $91,000, $92,000, ...)\n\n"
+        f"• <b>ETH:</b> Every ${eth_milestone}\n"
+        f"  ($3,100, $3,200, $3,300, ...)\n\n"
+        f"Use /btc &lt;$&gt; or /eth &lt;$&gt; to change milestone.",
+        parse_mode='HTML'
+    )
+
+    logger.info(f"BTC/ETH alert mode changed to milestone by user {user_id}")
+
+
 async def cmd_pause(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     /pause - Pause the price scanner
@@ -265,8 +415,12 @@ async def cmd_setthreshold(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     Works for any symbol: /btc 2%, /eth 3%, /sol 5%
 
-    This sets incremental alerts - e.g., /btc 2% means alert every ±2%:
-    ±2%, ±4%, ±6%, ±8%, ±10%, ±12%, etc.
+    For BTC and ETH:
+    - Percentage mode: /btc 3% (every ±3%)
+    - Milestone mode: /btc 1000 (every $1000)
+
+    For other symbols:
+    - Only percentage mode: /sol 5% (every ±5%)
     """
     user_id = update.effective_user.id
 
@@ -276,57 +430,124 @@ async def cmd_setthreshold(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Extract symbol from command (e.g., "/btc" -> "BTC")
     command = update.message.text.split()[0][1:].upper()
+    is_btc_eth = command in ['BTC', 'ETH']
 
     if not context.args:
-        await update.message.reply_text(
-            f"❌ <b>Usage:</b> <code>/{command.lower()} &lt;percentage&gt;</code>\n\n"
-            f"<b>Example:</b> <code>/{command.lower()} 2%</code>\n"
-            f"This will alert EVERY ±2%: ±2%, ±4%, ±6%, ±8%, ...\n\n"
-            f"<b>Works for any symbol:</b>\n"
-            f"<code>/btc 2%</code> - BTC alerts every ±2%\n"
-            f"<code>/eth 3%</code> - ETH alerts every ±3%\n"
-            f"<code>/sol 5%</code> - SOL alerts every ±5%",
-            parse_mode='HTML'
-        )
+        if is_btc_eth:
+            current_mode = get_bot_setting('btc_eth_alert_mode') or 'percentage'
+            if command == 'BTC':
+                current_pct = get_bot_setting('btc_percentage') or '3'
+                current_ms = get_bot_setting('btc_milestone') or '1000'
+            else:
+                current_pct = get_bot_setting('eth_percentage') or '2'
+                current_ms = get_bot_setting('eth_milestone') or '100'
+
+            await update.message.reply_text(
+                f"📊 <b>{command} Alert Settings</b>\n\n"
+                f"Current mode: <b>{current_mode.upper()}</b>\n\n"
+                f"<b>Percentage:</b> ±{current_pct}%\n"
+                f"<b>Milestone:</b> ${current_ms}\n\n"
+                f"<b>Usage:</b>\n"
+                f"• <code>/{command.lower()} 3%</code> - Set percentage\n"
+                f"• <code>/{command.lower()} 1000</code> - Set milestone\n\n"
+                f"<b>Switch modes:</b>\n"
+                f"/percentage - Use percentage alerts\n"
+                f"/milestone - Use price milestone alerts",
+                parse_mode='HTML'
+            )
+        else:
+            await update.message.reply_text(
+                f"❌ <b>Usage:</b> <code>/{command.lower()} &lt;percentage&gt;</code>\n\n"
+                f"<b>Example:</b> <code>/{command.lower()} 5%</code>\n"
+                f"This will alert EVERY ±5%: ±5%, ±10%, ±15%, ...",
+                parse_mode='HTML'
+            )
         return
 
     try:
-        # Parse percentage (remove % if present)
-        threshold_str = context.args[0].rstrip('%')
-        increment = int(threshold_str)
+        value_str = context.args[0]
+        has_percent = '%' in value_str
 
-        if increment < 1 or increment > 50:
-            await update.message.reply_text(
-                "❌ Percentage must be between 1% and 50%"
+        # Parse the value
+        value = int(value_str.rstrip('%'))
+
+        if is_btc_eth:
+            # For BTC/ETH: determine if percentage or milestone based on value
+            if has_percent or value <= 50:
+                # Percentage mode
+                if value < 1 or value > 50:
+                    await update.message.reply_text("❌ Percentage must be between 1% and 50%")
+                    return
+
+                setting_key = 'btc_percentage' if command == 'BTC' else 'eth_percentage'
+                set_bot_setting(setting_key, str(value), str(user_id))
+
+                examples = [value * i for i in range(1, 6)]
+                examples_str = ', '.join(f'±{t}%' for t in examples)
+
+                await update.message.reply_text(
+                    f"✅ <b>{command} Percentage Set</b>\n\n"
+                    f"📊 <b>Alert every ±{value}%</b>\n"
+                    f"🔔 Examples: {examples_str}, ...\n\n"
+                    f"Mode: Use /percentage to activate",
+                    parse_mode='HTML'
+                )
+
+                logger.info(f"{command} percentage set to {value}% by user {user_id}")
+
+            else:
+                # Milestone mode (value > 50, like 100 or 1000)
+                setting_key = 'btc_milestone' if command == 'BTC' else 'eth_milestone'
+                set_bot_setting(setting_key, str(value), str(user_id))
+
+                # Generate example milestones
+                if command == 'BTC':
+                    base = 90000
+                    examples = [f"${base + value * i:,}" for i in range(3)]
+                else:
+                    base = 3000
+                    examples = [f"${base + value * i:,}" for i in range(3)]
+
+                await update.message.reply_text(
+                    f"✅ <b>{command} Milestone Set</b>\n\n"
+                    f"📊 <b>Alert every ${value:,}</b>\n"
+                    f"🔔 Examples: {', '.join(examples)}, ...\n\n"
+                    f"Mode: Use /milestone to activate",
+                    parse_mode='HTML'
+                )
+
+                logger.info(f"{command} milestone set to ${value} by user {user_id}")
+
+        else:
+            # For other symbols: only percentage mode
+            if value < 1 or value > 50:
+                await update.message.reply_text("❌ Percentage must be between 1% and 50%")
+                return
+
+            symbol = f"{command}USDT"
+
+            # Save as incremental threshold
+            set_custom_thresholds(
+                symbol=symbol,
+                thresholds=[value],
+                is_incremental=True,
+                user_id=user_id
             )
-            return
 
-        symbol = f"{command}USDT"
+            examples = [value * i for i in range(1, 6)]
+            examples_str = ', '.join(f'±{t}%' for t in examples)
 
-        # Save as incremental threshold
-        set_custom_thresholds(
-            symbol=symbol,
-            thresholds=[increment],
-            is_incremental=True,
-            user_id=user_id
-        )
+            await update.message.reply_text(
+                f"✅ <b>Alerts Set for {symbol}</b>\n\n"
+                f"📊 <b>Alert every ±{value}%</b>\n"
+                f"🔔 Examples: {examples_str}, ...",
+                parse_mode='HTML'
+            )
 
-        # Generate example thresholds
-        examples = [increment * i for i in range(1, 6)]
-        examples_str = ', '.join(f'±{t}%' for t in examples)
-
-        await update.message.reply_text(
-            f"✅ <b>Incremental Alerts Set for {symbol}</b>\n\n"
-            f"📊 <b>Alert every ±{increment}%</b>\n"
-            f"🔔 Examples: {examples_str}, ...\n\n"
-            f"Next alerts will fire at every ±{increment}% move!",
-            parse_mode='HTML'
-        )
-
-        logger.info(f"Custom threshold set for {symbol}: every ±{increment}% by user {user_id}")
+            logger.info(f"Threshold set for {symbol}: every ±{value}% by user {user_id}")
 
     except ValueError:
-        await update.message.reply_text("❌ Invalid percentage value. Use a number like: 2, 3, 5")
+        await update.message.reply_text("❌ Invalid value. Use a number like: 2, 3, 5, 100, 1000")
     except Exception as e:
         logger.error(f"Error setting threshold: {e}")
         await update.message.reply_text(f"❌ Error: {str(e)}")

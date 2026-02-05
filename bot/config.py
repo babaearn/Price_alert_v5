@@ -33,11 +33,26 @@ BYBIT_API_TIMEOUT = 10  # seconds
 GAINER_LINK = "https://mudrex.go.link/FuturesGainer"
 LOSER_LINK = "https://mudrex.go.link/TopLosers"
 
+# Custom links for BTC and ETH
+BTC_LINK = "https://mudrex.go.link/1Yogo"
+ETH_LINK = "https://mudrex.go.link/kmYNX"
+
 # Default Settings (can be changed via commands)
 DEFAULT_MODE = 'futures'  # 'futures' or 'spot'
 DEFAULT_MODEL = 'model2'  # 'model1' or 'model2'
-DEFAULT_MIN_VOLUME_USD = 5_000_000  # $5M
+DEFAULT_MIN_VOLUME_USD = 5_000_000  # $5M (default, separate for futures/spot)
+DEFAULT_MIN_VOLUME_FUTURES = 25_000_000  # $25M for futures
+DEFAULT_MIN_VOLUME_SPOT = 25_000_000  # $25M for spot
 DEFAULT_SCAN_INTERVAL = 30  # seconds
+
+# BTC/ETH Alert Mode (percentage or milestone)
+# 'percentage' = alert every X% (e.g., 3% for BTC, 2% for ETH)
+# 'milestone' = alert at price milestones (e.g., every $1000 for BTC, every $100 for ETH)
+DEFAULT_BTC_ETH_ALERT_MODE = 'percentage'
+DEFAULT_BTC_PERCENTAGE = 3  # Alert every ±3%
+DEFAULT_ETH_PERCENTAGE = 2  # Alert every ±2%
+DEFAULT_BTC_MILESTONE = 1000  # Alert every $1000 (90000, 91000, 92000)
+DEFAULT_ETH_MILESTONE = 100  # Alert every $100 (3100, 3200, 3300)
 
 # Thresholds
 # Base: ±10%, ±30%, ±60%, ±80%, ±100%

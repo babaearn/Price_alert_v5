@@ -11,7 +11,10 @@ from bot.services.database import (
     get_bot_setting, store_price_snapshot, log_scan
 )
 from bot.services.bybit_api import fetch_tickers, get_bybit_category
-from bot.services.alert_checker import check_and_send_alerts
+from bot.services.alert_checker import (
+    check_and_send_alerts, is_btc_eth_milestone_mode,
+    check_and_send_milestone_alerts
+)
 from bot.services.session_manager import reset_daily_sessions, initialize_session_prices
 from bot.services.cleanup import run_cleanup
 from bot.utils.logger import logger
@@ -139,7 +142,15 @@ async def scan_prices():
         # Get settings
         mode = get_bot_setting('mode') or 'futures'
         category = get_bybit_category(mode)
-        min_volume = float(get_bot_setting('min_volume_usd') or 5_000_000)
+
+        # Use mode-specific volume setting
+        if mode == 'futures':
+            min_volume = float(get_bot_setting('min_volume_futures') or 25_000_000)
+        else:
+            min_volume = float(get_bot_setting('min_volume_spot') or 25_000_000)
+
+        # Check if BTC/ETH are in milestone mode
+        use_milestone_mode = is_btc_eth_milestone_mode()
 
         # Fetch all tickers from Bybit
         tickers = fetch_tickers(category)
@@ -166,10 +177,19 @@ async def scan_prices():
                 # Store price snapshot for rolling 24h calculation
                 store_price_snapshot(symbol, mode, current_price, current_time)
 
-                # Check and send alerts
-                alert_sent, alert_count = await check_and_send_alerts(
-                    _bot, symbol, current_price, ticker, current_time
-                )
+                # Check if this is BTC or ETH and we're in milestone mode
+                is_btc_eth = 'BTC' in symbol.upper() or 'ETH' in symbol.upper()
+
+                if is_btc_eth and use_milestone_mode:
+                    # Use milestone-based alerts for BTC/ETH
+                    alert_sent, alert_count = await check_and_send_milestone_alerts(
+                        _bot, symbol, current_price, ticker, current_time
+                    )
+                else:
+                    # Use percentage-based alerts (standard or incremental)
+                    alert_sent, alert_count = await check_and_send_alerts(
+                        _bot, symbol, current_price, ticker, current_time
+                    )
 
                 alerts_sent += alert_count
 
@@ -221,7 +241,12 @@ async def run_manual_scan() -> dict:
     # Get settings
     mode = get_bot_setting('mode') or 'futures'
     category = get_bybit_category(mode)
-    min_volume = float(get_bot_setting('min_volume_usd') or 5_000_000)
+
+    # Use mode-specific volume setting
+    if mode == 'futures':
+        min_volume = float(get_bot_setting('min_volume_futures') or 25_000_000)
+    else:
+        min_volume = float(get_bot_setting('min_volume_spot') or 25_000_000)
 
     # Fetch tickers
     tickers = fetch_tickers(category)

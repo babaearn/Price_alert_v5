@@ -8,7 +8,8 @@ from bot.services.database import (
     cleanup_old_snapshots,
     cleanup_expired_alerts,
     cleanup_old_logs,
-    cleanup_old_sessions
+    cleanup_old_sessions,
+    cleanup_expired_milestones
 )
 from bot.utils.logger import logger
 
@@ -57,6 +58,13 @@ def run_cleanup():
     except Exception as e:
         logger.error(f"Session cleanup failed: {e}")
 
+    # Clean expired milestones
+    try:
+        milestones_deleted = cleanup_expired_milestones()
+        total_deleted += milestones_deleted
+    except Exception as e:
+        logger.error(f"Milestone cleanup failed: {e}")
+
     if total_deleted > 0:
         logger.info(f"✅ Cleanup complete: {total_deleted} total records deleted")
     else:
@@ -77,7 +85,7 @@ def get_storage_stats() -> dict:
     stats = {}
 
     # Count rows in each table
-    tables = ['price_snapshots', 'alert_history', 'scanner_logs', 'session_prices']
+    tables = ['price_snapshots', 'alert_history', 'scanner_logs', 'session_prices', 'milestone_history']
 
     for table in tables:
         try:

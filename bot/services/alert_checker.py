@@ -6,13 +6,14 @@ from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 
 from bot.config import (
     BASE_THRESHOLDS, EXTENDED_THRESHOLD_STEP, MAX_THRESHOLD,
-    GAINER_LINK, LOSER_LINK, TELEGRAM_CHANNEL_ID, TELEGRAM_TOPIC_ID
+    TELEGRAM_CHANNEL_ID, TELEGRAM_TOPIC_ID
 )
 from bot.services.database import (
     get_bot_setting, get_24h_ago_price, get_session_start_price,
-    can_fire_alert, record_alert, get_custom_thresholds
+    can_fire_alert, record_alert, get_custom_thresholds,
+    can_fire_milestone_alert, record_milestone_alert, get_crossed_milestones
 )
-from bot.utils.formatters import format_alert_message, get_adjust_link
+from bot.utils.formatters import format_alert_message, get_symbol_link
 from bot.utils.logger import logger
 
 
@@ -189,6 +190,8 @@ def create_alert_keyboard(symbol: str, pct_change: float) -> InlineKeyboardMarku
     """
     Create inline keyboard with trade button.
 
+    Uses symbol-specific links for BTC and ETH, otherwise gainer/loser links.
+
     Args:
         symbol: Trading pair symbol
         pct_change: Percentage change
@@ -197,7 +200,7 @@ def create_alert_keyboard(symbol: str, pct_change: float) -> InlineKeyboardMarku
         InlineKeyboardMarkup with trade button
     """
     button_text = f"💰 TRADE NOW - {symbol} 🔥"
-    url = get_adjust_link(pct_change)
+    url = get_symbol_link(symbol, pct_change)
 
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton(button_text, url=url)]
@@ -343,3 +346,192 @@ def classify_movement(pct_change: float) -> str:
         return "LOSER"
     else:
         return "NEUTRAL"
+
+
+def format_milestone_alert(symbol: str, current_price: float, milestone: float,
+                            direction: str, volume_24h: float) -> str:
+    """
+    Format Telegram milestone alert message.
+
+    Args:
+        symbol: Trading pair symbol
+        current_price: Current price
+        milestone: Price milestone crossed
+        direction: 'up' or 'down'
+        volume_24h: 24-hour trading volume
+
+    Returns:
+        Formatted milestone alert message
+    """
+    if direction == 'up':
+        title_emoji = "🚀"
+        alert_type = "PRICE MILESTONE!"
+        arrow = "↑"
+    else:
+        title_emoji = "📉"
+        alert_type = "PRICE MILESTONE!"
+        arrow = "↓"
+
+    # Format prices
+    if current_price >= 1:
+        price_format = ",.2f"
+    elif current_price >= 0.001:
+        price_format = ",.4f"
+    else:
+        price_format = ",.8f"
+
+    # Format volume
+    if volume_24h >= 1_000_000_000:
+        volume_str = f"${volume_24h / 1_000_000_000:.2f}B"
+    elif volume_24h >= 1_000_000:
+        volume_str = f"${volume_24h / 1_000_000:.2f}M"
+    else:
+        volume_str = f"${volume_24h:,.0f}"
+
+    message = f"""
+{title_emoji} <b>{alert_type}</b> ${milestone:,.0f} {arrow}
+
+💰 <b>{symbol}</b>
+📈 Current: ${current_price:{price_format}}
+🎯 Crossed: ${milestone:,.0f}
+💵 Volume: {volume_str}
+"""
+
+    return message.strip()
+
+
+async def send_milestone_alert(
+    bot: Bot,
+    symbol: str,
+    current_price: float,
+    milestone: float,
+    direction: str,
+    volume_24h: float
+) -> bool:
+    """
+    Send milestone alert to Telegram channel.
+
+    Args:
+        bot: Telegram bot instance
+        symbol: Trading pair symbol
+        current_price: Current price
+        milestone: Price milestone crossed
+        direction: 'up' or 'down'
+        volume_24h: 24-hour trading volume
+
+    Returns:
+        True if sent successfully, False otherwise
+    """
+    try:
+        # Format message
+        message = format_milestone_alert(
+            symbol, current_price, milestone, direction, volume_24h
+        )
+
+        # Create keyboard with symbol-specific link
+        pct_change = 1 if direction == 'up' else -1  # Dummy for link selection
+        keyboard = create_alert_keyboard(symbol, pct_change)
+
+        # Build message parameters
+        send_params = {
+            'chat_id': TELEGRAM_CHANNEL_ID,
+            'text': message,
+            'reply_markup': keyboard,
+            'parse_mode': 'HTML'
+        }
+
+        # Add topic ID if configured
+        if TELEGRAM_TOPIC_ID:
+            send_params['message_thread_id'] = TELEGRAM_TOPIC_ID
+
+        await bot.send_message(**send_params)
+
+        logger.info(f"Milestone alert sent: {symbol} ${milestone} ({direction})")
+        return True
+
+    except Exception as e:
+        logger.error(f"Failed to send milestone alert for {symbol}: {e}")
+        return False
+
+
+def is_btc_eth_milestone_mode() -> bool:
+    """Check if BTC/ETH are in milestone alert mode."""
+    alert_mode = get_bot_setting('btc_eth_alert_mode') or 'percentage'
+    return alert_mode == 'milestone'
+
+
+def get_btc_eth_milestone_step(symbol: str) -> Optional[int]:
+    """
+    Get milestone step for BTC or ETH.
+
+    Args:
+        symbol: Trading pair symbol
+
+    Returns:
+        Milestone step (e.g., 1000 for BTC, 100 for ETH) or None
+    """
+    if 'BTC' in symbol.upper():
+        return int(get_bot_setting('btc_milestone') or 1000)
+    elif 'ETH' in symbol.upper():
+        return int(get_bot_setting('eth_milestone') or 100)
+    return None
+
+
+async def check_and_send_milestone_alerts(
+    bot: Bot,
+    symbol: str,
+    current_price: float,
+    ticker: Dict,
+    current_time: int
+) -> Tuple[bool, int]:
+    """
+    Check and send milestone-based alerts for BTC/ETH.
+
+    Only used when btc_eth_alert_mode is 'milestone'.
+
+    Args:
+        bot: Telegram bot instance
+        symbol: Trading pair symbol
+        current_price: Current price
+        ticker: Full ticker data
+        current_time: Current Unix timestamp
+
+    Returns:
+        Tuple of (alert_sent, number_of_alerts)
+    """
+    # Get milestone step for this symbol
+    milestone_step = get_btc_eth_milestone_step(symbol)
+
+    if not milestone_step:
+        return False, 0
+
+    # Get reference price
+    reference_price = get_reference_price(symbol, ticker, current_time)
+
+    if not reference_price or reference_price == 0:
+        return False, 0
+
+    # Calculate crossed milestones
+    crossed = get_crossed_milestones(symbol, current_price, reference_price, milestone_step)
+
+    if not crossed:
+        return False, 0
+
+    alerts_sent = 0
+    volume_24h = float(ticker.get('turnover24h', 0))
+
+    for item in crossed:
+        milestone = item['milestone']
+        direction = item['direction']
+
+        if can_fire_milestone_alert(symbol, milestone, direction, current_time):
+            success = await send_milestone_alert(
+                bot, symbol, current_price, milestone, direction, volume_24h
+            )
+
+            if success:
+                record_milestone_alert(symbol, milestone, direction, current_price, current_time)
+                alerts_sent += 1
+                logger.info(f"🎯 Milestone fired: {symbol} ${milestone} ({direction})")
+
+    return alerts_sent > 0, alerts_sent

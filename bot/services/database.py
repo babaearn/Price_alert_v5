@@ -7,7 +7,10 @@ from typing import Optional, Dict, Any, List
 
 from bot.config import (
     DATABASE_URL, DEFAULT_MODE, DEFAULT_MODEL,
-    DEFAULT_MIN_VOLUME_USD, DEFAULT_SCAN_INTERVAL
+    DEFAULT_MIN_VOLUME_USD, DEFAULT_SCAN_INTERVAL,
+    DEFAULT_MIN_VOLUME_FUTURES, DEFAULT_MIN_VOLUME_SPOT,
+    DEFAULT_BTC_ETH_ALERT_MODE, DEFAULT_BTC_PERCENTAGE, DEFAULT_ETH_PERCENTAGE,
+    DEFAULT_BTC_MILESTONE, DEFAULT_ETH_MILESTONE
 )
 from bot.utils.logger import logger
 from bot.utils.token_masker import mask_database_url, mask_error_message
@@ -109,10 +112,23 @@ def create_schema():
             ('mode', %s, 'system'),
             ('model', %s, 'system'),
             ('min_volume_usd', %s, 'system'),
+            ('min_volume_futures', %s, 'system'),
+            ('min_volume_spot', %s, 'system'),
             ('scan_interval', %s, 'system'),
-            ('paused', 'false', 'system')
+            ('paused', 'false', 'system'),
+            ('btc_eth_alert_mode', %s, 'system'),
+            ('btc_percentage', %s, 'system'),
+            ('eth_percentage', %s, 'system'),
+            ('btc_milestone', %s, 'system'),
+            ('eth_milestone', %s, 'system')
         ON CONFLICT (key) DO NOTHING
-    """, (DEFAULT_MODE, DEFAULT_MODEL, str(DEFAULT_MIN_VOLUME_USD), str(DEFAULT_SCAN_INTERVAL)))
+    """, (
+        DEFAULT_MODE, DEFAULT_MODEL, str(DEFAULT_MIN_VOLUME_USD),
+        str(DEFAULT_MIN_VOLUME_FUTURES), str(DEFAULT_MIN_VOLUME_SPOT),
+        str(DEFAULT_SCAN_INTERVAL), DEFAULT_BTC_ETH_ALERT_MODE,
+        str(DEFAULT_BTC_PERCENTAGE), str(DEFAULT_ETH_PERCENTAGE),
+        str(DEFAULT_BTC_MILESTONE), str(DEFAULT_ETH_MILESTONE)
+    ))
 
     # Scanner logs (monitoring)
     cursor.execute("""
@@ -159,6 +175,25 @@ def create_schema():
             updated_at TIMESTAMP DEFAULT NOW(),
             updated_by BIGINT
         )
+    """)
+
+    # Price milestone history (for milestone-based alerts)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS milestone_history (
+            id SERIAL PRIMARY KEY,
+            symbol VARCHAR(20) NOT NULL,
+            milestone DECIMAL(20, 2) NOT NULL,
+            direction VARCHAR(10) NOT NULL,
+            price_at_detection DECIMAL(20, 8) NOT NULL,
+            detected_at BIGINT NOT NULL,
+            expires_at BIGINT NOT NULL,
+            created_at TIMESTAMP DEFAULT NOW()
+        )
+    """)
+
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_milestone_history_lookup
+        ON milestone_history(symbol, milestone, expires_at)
     """)
 
     conn.commit()
@@ -706,6 +741,128 @@ def get_all_custom_thresholds() -> List[Dict]:
     except Exception as e:
         logger.error(f"Error getting all custom thresholds: {e}")
         return []
+
+
+# Milestone alert functions
+def can_fire_milestone_alert(symbol: str, milestone: float, direction: str, current_time: int) -> bool:
+    """
+    Check if milestone alert can fire (24h deduplication).
+
+    Args:
+        symbol: Trading pair symbol (e.g., BTCUSDT)
+        milestone: Price milestone (e.g., 91000 for BTC)
+        direction: 'up' or 'down'
+        current_time: Current Unix timestamp
+
+    Returns:
+        True if alert can fire, False if within cooldown
+    """
+    try:
+        conn, cursor = get_connection()
+
+        cursor.execute("""
+            SELECT expires_at
+            FROM milestone_history
+            WHERE symbol = %s
+              AND milestone = %s
+              AND direction = %s
+              AND expires_at > %s
+            ORDER BY created_at DESC
+            LIMIT 1
+        """, (symbol, milestone, direction, current_time))
+
+        result = cursor.fetchone()
+        return result is None
+
+    except Exception as e:
+        logger.error(f"Error checking milestone alert for {symbol}: {e}")
+        return True
+
+
+def record_milestone_alert(symbol: str, milestone: float, direction: str,
+                           price: float, current_time: int):
+    """Record milestone alert in history for deduplication."""
+    try:
+        expires_at = current_time + 86400  # 24 hours
+
+        conn, cursor = get_connection()
+
+        cursor.execute("""
+            INSERT INTO milestone_history (
+                symbol, milestone, direction, price_at_detection,
+                detected_at, expires_at
+            ) VALUES (%s, %s, %s, %s, %s, %s)
+        """, (symbol, milestone, direction, price, current_time, expires_at))
+
+        conn.commit()
+        logger.debug(f"Milestone recorded: {symbol} ${milestone} ({direction})")
+
+    except Exception as e:
+        logger.error(f"Error recording milestone for {symbol}: {e}")
+        conn.rollback()
+
+
+def get_crossed_milestones(symbol: str, current_price: float, reference_price: float,
+                           milestone_step: int) -> List[Dict]:
+    """
+    Calculate which price milestones have been crossed.
+
+    Args:
+        symbol: Trading pair symbol
+        current_price: Current price
+        reference_price: Reference price (24h ago)
+        milestone_step: Milestone increment (e.g., 1000 for BTC, 100 for ETH)
+
+    Returns:
+        List of crossed milestones with direction
+    """
+    milestones = []
+
+    if current_price == reference_price:
+        return milestones
+
+    direction = 'up' if current_price > reference_price else 'down'
+    low_price = min(current_price, reference_price)
+    high_price = max(current_price, reference_price)
+
+    # Find the first milestone above low_price
+    first_milestone = ((int(low_price) // milestone_step) + 1) * milestone_step
+
+    # Generate all milestones between low and high
+    milestone = first_milestone
+    while milestone <= high_price:
+        milestones.append({
+            'milestone': milestone,
+            'direction': direction
+        })
+        milestone += milestone_step
+
+    return milestones
+
+
+def cleanup_expired_milestones() -> int:
+    """Delete expired milestone history records."""
+    try:
+        current_time = int(time.time())
+        conn, cursor = get_connection()
+
+        cursor.execute("""
+            DELETE FROM milestone_history
+            WHERE expires_at < %s
+        """, (current_time,))
+
+        deleted_count = cursor.rowcount
+        conn.commit()
+
+        if deleted_count > 0:
+            logger.info(f"Deleted {deleted_count} expired milestones")
+
+        return deleted_count
+
+    except Exception as e:
+        logger.error(f"Error cleaning up milestones: {e}")
+        conn.rollback()
+        return 0
 
 
 def close_connection():

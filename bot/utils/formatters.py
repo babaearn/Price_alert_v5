@@ -1,5 +1,5 @@
 """Message formatting utilities"""
-from bot.config import GAINER_LINK, LOSER_LINK
+from bot.config import GAINER_LINK, LOSER_LINK, BTC_LINK, ETH_LINK
 
 
 def format_alert_message(symbol: str, current_price: float, reference_price: float,
@@ -105,6 +105,31 @@ def get_adjust_link(pct_change: float) -> str:
         Gainer link if positive, loser link if negative
     """
     if pct_change > 0:
+        return GAINER_LINK
+    else:
+        return LOSER_LINK
+
+
+def get_symbol_link(symbol: str, pct_change: float) -> str:
+    """
+    Return appropriate link based on symbol and price movement.
+
+    BTC and ETH have custom links, other symbols use gainer/loser links.
+
+    Args:
+        symbol: Trading pair symbol (e.g., BTCUSDT, ETHUSDT)
+        pct_change: Percentage change
+
+    Returns:
+        Custom link for BTC/ETH, otherwise gainer/loser link
+    """
+    # Check for BTC or ETH in symbol
+    if 'BTC' in symbol.upper():
+        return BTC_LINK
+    elif 'ETH' in symbol.upper():
+        return ETH_LINK
+    # For other symbols, use gainer/loser link
+    elif pct_change > 0:
         return GAINER_LINK
     else:
         return LOSER_LINK
