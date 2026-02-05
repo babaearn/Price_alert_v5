@@ -6,7 +6,7 @@ from telegram.ext import ContextTypes
 
 from bot.services.database import (
     get_bot_setting, get_all_settings, get_last_scan_log,
-    get_scan_stats, get_recent_alerts
+    get_scan_stats, get_recent_alerts, get_all_time_stats
 )
 from bot.services.bybit_api import fetch_tickers, get_bybit_category
 from bot.services.price_monitor import get_scan_count, is_monitor_running
@@ -165,6 +165,16 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
             message += f"""
 📈 <b>Last Scan:</b> {time_ago}
 ▸ Pairs: {last_scan['pairs_scanned']} | Alerts: {last_scan['alerts_sent']}
+"""
+
+    # Get all-time stats (persistent)
+    all_time = get_all_time_stats()
+    if all_time['total_alerts'] > 0:
+        message += f"""
+📊 <b>All-Time Stats</b>
+▸ Total Alerts: {all_time['total_alerts']:,}
+▸ Days Active: {all_time['days_active']}
+▸ Avg/Day: {all_time['avg_per_day']}
 """
 
     await update.message.reply_text(message.strip(), parse_mode='HTML')

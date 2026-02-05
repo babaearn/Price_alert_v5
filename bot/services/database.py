@@ -507,6 +507,58 @@ def get_scan_stats(hours: int = 24) -> Dict:
                 'avg_duration_ms': 0, 'avg_pairs': 0}
 
 
+def get_all_time_stats() -> Dict:
+    """Get all-time alert statistics (persistent across restarts)"""
+    try:
+        conn, cursor = get_connection()
+
+        # Get total alerts and date range
+        cursor.execute("""
+            SELECT
+                COALESCE(SUM(alerts_sent), 0) as total_alerts,
+                MIN(created_at) as first_scan,
+                MAX(created_at) as last_scan,
+                COUNT(*) as total_scans
+            FROM scanner_logs
+        """)
+
+        result = cursor.fetchone()
+
+        total_alerts = int(result['total_alerts'] or 0)
+        first_scan = result['first_scan']
+        last_scan = result['last_scan']
+        total_scans = int(result['total_scans'] or 0)
+
+        # Calculate days active
+        if first_scan and last_scan:
+            days_active = max(1, (last_scan - first_scan).days + 1)
+        else:
+            days_active = 1
+
+        # Calculate average per day
+        avg_per_day = round(total_alerts / days_active, 1) if days_active > 0 else 0
+
+        return {
+            'total_alerts': total_alerts,
+            'days_active': days_active,
+            'avg_per_day': avg_per_day,
+            'total_scans': total_scans,
+            'first_scan': first_scan,
+            'last_scan': last_scan
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting all-time stats: {e}")
+        return {
+            'total_alerts': 0,
+            'days_active': 0,
+            'avg_per_day': 0,
+            'total_scans': 0,
+            'first_scan': None,
+            'last_scan': None
+        }
+
+
 # Cleanup operations
 def cleanup_old_snapshots(retention_hours: int = 48) -> int:
     """Delete snapshots older than retention period"""
