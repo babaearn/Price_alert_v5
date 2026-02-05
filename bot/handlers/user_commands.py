@@ -83,6 +83,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 /milestone - Use milestone mode (price levels)
 /btc 1000 - Set BTC milestone step ($1000)
 /eth 100 - Set ETH milestone step ($100)
+/cooldown &lt;min&gt; - Set milestone cooldown (default: 60)
 """
 
     await update.message.reply_text(message.strip(), parse_mode='HTML')

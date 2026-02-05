@@ -10,7 +10,7 @@ from bot.config import (
     DEFAULT_MIN_VOLUME_USD, DEFAULT_SCAN_INTERVAL,
     DEFAULT_MIN_VOLUME_FUTURES, DEFAULT_MIN_VOLUME_SPOT,
     DEFAULT_BTC_ETH_ALERT_MODE, DEFAULT_BTC_PERCENTAGE, DEFAULT_ETH_PERCENTAGE,
-    DEFAULT_BTC_MILESTONE, DEFAULT_ETH_MILESTONE
+    DEFAULT_BTC_MILESTONE, DEFAULT_ETH_MILESTONE, DEFAULT_MILESTONE_COOLDOWN
 )
 from bot.utils.logger import logger
 from bot.utils.token_masker import mask_database_url, mask_error_message
@@ -120,14 +120,16 @@ def create_schema():
             ('btc_percentage', %s, 'system'),
             ('eth_percentage', %s, 'system'),
             ('btc_milestone', %s, 'system'),
-            ('eth_milestone', %s, 'system')
+            ('eth_milestone', %s, 'system'),
+            ('milestone_cooldown', %s, 'system')
         ON CONFLICT (key) DO NOTHING
     """, (
         DEFAULT_MODE, DEFAULT_MODEL, str(DEFAULT_MIN_VOLUME_USD),
         str(DEFAULT_MIN_VOLUME_FUTURES), str(DEFAULT_MIN_VOLUME_SPOT),
         str(DEFAULT_SCAN_INTERVAL), DEFAULT_BTC_ETH_ALERT_MODE,
         str(DEFAULT_BTC_PERCENTAGE), str(DEFAULT_ETH_PERCENTAGE),
-        str(DEFAULT_BTC_MILESTONE), str(DEFAULT_ETH_MILESTONE)
+        str(DEFAULT_BTC_MILESTONE), str(DEFAULT_ETH_MILESTONE),
+        str(DEFAULT_MILESTONE_COOLDOWN)
     ))
 
     # Scanner logs (monitoring)
@@ -783,8 +785,9 @@ def record_milestone_alert(symbol: str, milestone: float, direction: str,
                            price: float, current_time: int):
     """Record milestone alert in history for deduplication."""
     try:
-        # 1 hour cooldown for milestone alerts (prevents spam on price oscillation)
-        expires_at = current_time + 3600  # 1 hour
+        # Get configurable cooldown (in minutes), default 60 minutes
+        cooldown_minutes = int(get_bot_setting('milestone_cooldown') or DEFAULT_MILESTONE_COOLDOWN)
+        expires_at = current_time + (cooldown_minutes * 60)  # Convert minutes to seconds
 
         conn, cursor = get_connection()
 

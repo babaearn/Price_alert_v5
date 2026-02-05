@@ -53,6 +53,7 @@ DEFAULT_BTC_PERCENTAGE = 3  # Alert every ±3%
 DEFAULT_ETH_PERCENTAGE = 2  # Alert every ±2%
 DEFAULT_BTC_MILESTONE = 1000  # Alert every $1000 (90000, 91000, 92000)
 DEFAULT_ETH_MILESTONE = 100  # Alert every $100 (3100, 3200, 3300)
+DEFAULT_MILESTONE_COOLDOWN = 60  # Minutes between same milestone alerts (prevents spam)
 
 # Thresholds
 # Base: ±10%, ±30%, ±60%, ±80%, ±100%

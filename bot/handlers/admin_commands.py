@@ -303,6 +303,69 @@ async def cmd_milestone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"BTC/ETH alert mode changed to milestone by user {user_id}")
 
 
+async def cmd_cooldown(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /cooldown <minutes> - Set milestone alert cooldown
+
+    Admin only. Sets the cooldown period between same milestone alerts.
+    Prevents spam when price oscillates around a level.
+    Default: 60 minutes
+    """
+    user_id = update.effective_user.id
+
+    if not is_admin(user_id):
+        await update.message.reply_text("❌ Admin only command")
+        return
+
+    current_cooldown = get_bot_setting('milestone_cooldown') or '60'
+
+    if not context.args or len(context.args) != 1:
+        await update.message.reply_text(
+            f"⏱️ <b>Milestone Cooldown</b>\n\n"
+            f"Current: <b>{current_cooldown} minutes</b>\n\n"
+            f"This prevents spam when BTC/ETH price oscillates around a milestone.\n\n"
+            f"<b>Usage:</b> /cooldown &lt;minutes&gt;\n"
+            f"<b>Examples:</b>\n"
+            f"• /cooldown 30 - 30 minutes\n"
+            f"• /cooldown 60 - 1 hour (default)\n"
+            f"• /cooldown 120 - 2 hours",
+            parse_mode='HTML'
+        )
+        return
+
+    try:
+        minutes = int(context.args[0])
+
+        if minutes < 5:
+            await update.message.reply_text("❌ Minimum cooldown is 5 minutes")
+            return
+
+        if minutes > 1440:
+            await update.message.reply_text("❌ Maximum cooldown is 1440 minutes (24 hours)")
+            return
+
+        set_bot_setting('milestone_cooldown', str(minutes), str(user_id))
+
+        # Format display
+        if minutes >= 60:
+            hours = minutes / 60
+            display = f"{hours:.1f} hour{'s' if hours != 1 else ''}"
+        else:
+            display = f"{minutes} minutes"
+
+        await update.message.reply_text(
+            f"✅ <b>Milestone Cooldown Updated</b>\n\n"
+            f"⏱️ New cooldown: <b>{display}</b>\n\n"
+            f"Same milestone won't alert again for {display}.",
+            parse_mode='HTML'
+        )
+
+        logger.info(f"Milestone cooldown changed to {minutes}min by user {user_id}")
+
+    except ValueError:
+        await update.message.reply_text("❌ Invalid number. Use: /cooldown 60")
+
+
 async def cmd_pause(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     /pause - Pause the price scanner

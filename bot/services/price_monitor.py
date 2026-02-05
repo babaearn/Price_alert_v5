@@ -278,12 +278,20 @@ def get_monitor_status() -> dict:
     Returns:
         Dictionary with monitor status
     """
+    mode = get_bot_setting('mode') or 'futures'
+
+    # Get the correct volume setting based on mode
+    if mode == 'futures':
+        min_volume = get_bot_setting('min_volume_futures') or '25000000'
+    else:
+        min_volume = get_bot_setting('min_volume_spot') or '25000000'
+
     return {
         'running': is_monitor_running(),
         'paused': get_bot_setting('paused') == 'true',
         'scan_count': _scan_count,
-        'mode': get_bot_setting('mode'),
+        'mode': mode,
         'model': get_bot_setting('model'),
-        'min_volume': get_bot_setting('min_volume_usd'),
+        'min_volume': min_volume,
         'scan_interval': get_bot_setting('scan_interval')
     }
