@@ -5,15 +5,13 @@ from bot.config import GAINER_LINK, LOSER_LINK, BTC_LINK, ETH_LINK
 def format_alert_message(symbol: str, current_price: float, reference_price: float,
                          pct_change: float, volume_24h: float) -> str:
     """
-    Format Telegram alert message with improved design.
+    Format Telegram alert message with clean design.
 
     New Format:
-    🚀 PUMP ALERT! (+10.00%)
+    SOL pumps +15%
 
-    💰 BTC/USDT
-    📈 $25,000 → $27,500
-    📊 +10.00% (24h)
-    💵 Volume: $2.5B
+    ▸ Price: $123.60 → $142.50
+    ▸ Vol: $2.1B
 
     Args:
         symbol: Trading pair symbol (e.g., BTCUSDT)
@@ -25,17 +23,16 @@ def format_alert_message(symbol: str, current_price: float, reference_price: flo
     Returns:
         Formatted alert message
     """
-    # Determine alert type with new format
+    # Get short symbol name (SOL instead of SOLUSDT)
+    short_name = symbol.replace('USDT', '').replace('PERP', '')
+
+    # Determine action and emoji
     if pct_change > 0:
-        title_emoji = "🚀"
-        alert_type = "PUMP ALERT!"
-        price_emoji = "📈"
-        pct_display = f"+{abs(pct_change):.2f}%"
+        action = "pumps"
+        pct_display = f"+{abs(pct_change):.0f}%"
     else:
-        title_emoji = "📉"
-        alert_type = "DUMP ALERT!"
-        price_emoji = "📉"
-        pct_display = f"{pct_change:.2f}%"
+        action = "dumps"
+        pct_display = f"{pct_change:.0f}%"
 
     # Format prices based on value
     if current_price >= 1:
@@ -53,16 +50,12 @@ def format_alert_message(symbol: str, current_price: float, reference_price: flo
     else:
         volume_str = f"${volume_24h:,.0f}"
 
-    message = f"""
-{title_emoji} <b>{alert_type}</b> ({pct_display})
+    message = f"""<b>{short_name} {action} {pct_display}</b>
 
-💰 <b>{symbol}</b>
-{price_emoji} ${reference_price:{price_format}} → ${current_price:{price_format}}
-📊 {pct_change:+.2f}% (24h)
-💵 Volume: {volume_str}
-"""
+▸ Price: ${reference_price:{price_format}} → ${current_price:{price_format}}
+▸ Vol: {volume_str}"""
 
-    return message.strip()
+    return message
 
 
 def format_price(price: float) -> str:
