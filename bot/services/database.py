@@ -931,6 +931,8 @@ def get_crossed_milestones_realtime(current_price: float, last_price: float,
     This compares CURRENT price to LAST KNOWN price (not 24h reference)
     to detect real-time milestone crossings.
 
+    DEPRECATED: Use get_current_milestone_24h instead for 24h rolling reference approach.
+
     Args:
         current_price: Current price
         last_price: Last known price from previous scan
@@ -966,6 +968,79 @@ def get_crossed_milestones_realtime(current_price: float, last_price: float,
         milestone += milestone_step
 
     return milestones
+
+
+def get_current_milestone_24h(current_price: float, reference_price_24h: float,
+                               milestone_step: int) -> Optional[Dict]:
+    """
+    Get the current milestone level based on 24h rolling reference.
+
+    This implements the Bybit/Binance-style milestone alerts:
+    - If 24h change is NEGATIVE → "DROPS TO" the current milestone (floor)
+    - If 24h change is POSITIVE → "BREAKS" the milestone that was crossed (ceiling)
+
+    Only returns ONE milestone - the most significant one based on direction.
+
+    Args:
+        current_price: Current price
+        reference_price_24h: Price 24 hours ago (from Bybit prevPrice24h)
+        milestone_step: Milestone increment (e.g., 1000 for BTC, 100 for ETH)
+
+    Returns:
+        Dict with 'milestone' and 'direction', or None if no milestone crossed
+
+    Examples:
+        # Price dropped from $67,000 to $65,200 (24h down)
+        >>> get_current_milestone_24h(65200, 67000, 1000)
+        {'milestone': 65000, 'direction': 'down'}  # "DROPS TO $65,000"
+
+        # Price rose from $63,000 to $65,800 (24h up)
+        >>> get_current_milestone_24h(65800, 63000, 1000)
+        {'milestone': 65000, 'direction': 'up'}  # "BREAKS $65,000"
+
+        # Price at $65,500, was $65,200 (no milestone crossed)
+        >>> get_current_milestone_24h(65500, 65200, 1000)
+        None
+    """
+    if current_price == reference_price_24h:
+        return None
+
+    pct_change = ((current_price - reference_price_24h) / reference_price_24h) * 100
+
+    if pct_change < 0:
+        # Price is DOWN from 24h ago
+        # Calculate the floor milestone (e.g., 65200 → 65000)
+        current_milestone = (int(current_price) // milestone_step) * milestone_step
+
+        # Check if we crossed this milestone (reference was above it)
+        if reference_price_24h > current_milestone:
+            return {
+                'milestone': current_milestone,
+                'direction': 'down'
+            }
+    else:
+        # Price is UP from 24h ago
+        # Find the highest milestone that was crossed
+        # e.g., reference=63000, current=65800 → crossed 64000, 65000 → report 65000
+        low_price = reference_price_24h
+        high_price = current_price
+
+        # Find the highest milestone between reference and current
+        highest_crossed = None
+        first_milestone = ((int(low_price) // milestone_step) + 1) * milestone_step
+
+        milestone = first_milestone
+        while milestone <= high_price:
+            highest_crossed = milestone
+            milestone += milestone_step
+
+        if highest_crossed:
+            return {
+                'milestone': highest_crossed,
+                'direction': 'up'
+            }
+
+    return None
 
 
 def get_crossed_milestones(symbol: str, current_price: float, reference_price: float,

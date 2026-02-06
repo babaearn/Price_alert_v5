@@ -12,7 +12,7 @@ from bot.services.database import (
     get_bot_setting, get_24h_ago_price, get_session_start_price,
     can_fire_alert, record_alert, get_custom_thresholds,
     can_fire_milestone_alert, record_milestone_alert,
-    get_milestone_last_price, set_milestone_last_price, get_crossed_milestones_realtime
+    get_current_milestone_24h
 )
 from bot.utils.formatters import format_alert_message, get_symbol_link
 from bot.utils.logger import logger
@@ -522,8 +522,13 @@ async def check_and_send_milestone_alerts(
     """
     Check and send milestone-based alerts for BTC/ETH.
 
-    Uses REAL-TIME detection: compares current price to last known price
-    (not 24h reference) to detect actual milestone crossings.
+    Uses 24H ROLLING REFERENCE approach (like Bybit/Binance):
+    - If 24h change is NEGATIVE → "DROPS TO $X" (floor to nearest milestone)
+    - If 24h change is POSITIVE → "BREAKS $X" (highest milestone crossed)
+    - Only ONE alert per milestone per 24h cooldown
+
+    This prevents the confusing scenario where you see:
+    - "DROPS TO $65,000" then "DROPS TO $67,000" (wrong order)
 
     Only works with USDT pairs (BTCUSDT, ETHUSDT) - not PERP.
 
@@ -547,46 +552,42 @@ async def check_and_send_milestone_alerts(
     if not milestone_step:
         return False, 0
 
-    # Get LAST KNOWN price (from previous scan)
-    last_price = get_milestone_last_price(symbol)
+    # Get 24h reference price from Bybit API (prevPrice24h)
+    # This is the stable reference - price exactly 24 hours ago
+    reference_price_24h = float(ticker.get('prevPrice24h', 0))
 
-    # If no last price, store current and return (first run)
-    if last_price is None:
-        set_milestone_last_price(symbol, current_price)
-        logger.info(f"Initialized milestone tracking for {symbol} at ${current_price:,.2f}")
+    if not reference_price_24h or reference_price_24h <= 0:
+        logger.warning(f"No 24h reference price for {symbol}")
         return False, 0
 
-    # Calculate milestones crossed between LAST and CURRENT price
-    crossed = get_crossed_milestones_realtime(current_price, last_price, milestone_step)
+    # Calculate 24h percentage change for display
+    pct_change = calculate_percentage_change(current_price, reference_price_24h)
 
-    # Always update last price for next scan
-    set_milestone_last_price(symbol, current_price)
+    # Get the current milestone level based on 24h direction
+    # Returns ONE milestone: floor for DOWN, ceiling for UP
+    milestone_info = get_current_milestone_24h(current_price, reference_price_24h, milestone_step)
 
-    if not crossed:
+    if not milestone_info:
+        # No milestone crossed between 24h reference and current price
         return False, 0
 
-    # Get 24h reference for percentage change display
-    reference_price = get_reference_price(symbol, ticker, current_time)
-    if reference_price and reference_price > 0:
-        pct_change = calculate_percentage_change(current_price, reference_price)
-    else:
-        pct_change = 0.0
-
-    alerts_sent = 0
+    milestone = milestone_info['milestone']
+    direction = milestone_info['direction']
     volume_24h = float(ticker.get('turnover24h', 0))
 
-    for item in crossed:
-        milestone = item['milestone']
-        direction = item['direction']
+    # Check if we can fire this alert (24h cooldown per milestone)
+    if not can_fire_milestone_alert(symbol, milestone, direction, current_time):
+        logger.debug(f"Milestone ${milestone} ({direction}) on cooldown for {symbol}")
+        return False, 0
 
-        if can_fire_milestone_alert(symbol, milestone, direction, current_time):
-            success = await send_milestone_alert(
-                bot, symbol, current_price, milestone, direction, volume_24h, pct_change
-            )
+    # Send the alert
+    success = await send_milestone_alert(
+        bot, symbol, current_price, milestone, direction, volume_24h, pct_change
+    )
 
-            if success:
-                record_milestone_alert(symbol, milestone, direction, current_price, current_time)
-                alerts_sent += 1
-                logger.info(f"🎯 Milestone fired: {symbol} ${milestone} ({direction})")
+    if success:
+        record_milestone_alert(symbol, milestone, direction, current_price, current_time)
+        logger.info(f"🎯 Milestone fired: {symbol} ${milestone:,.0f} ({direction}) | 24h: {pct_change:+.2f}%")
+        return True, 1
 
-    return alerts_sent > 0, alerts_sent
+    return False, 0
