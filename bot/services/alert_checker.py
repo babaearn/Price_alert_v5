@@ -12,7 +12,7 @@ from bot.services.database import (
     get_bot_setting, get_24h_ago_price, get_session_start_price,
     can_fire_alert, record_alert, get_custom_thresholds,
     can_fire_milestone_alert, record_milestone_alert,
-    get_current_milestone_24h
+    get_milestone_realtime_with_trend
 )
 from bot.utils.formatters import format_alert_message, get_symbol_link
 from bot.utils.logger import logger
@@ -529,13 +529,17 @@ async def check_and_send_milestone_alerts(
     """
     Check and send milestone-based alerts for BTC/ETH.
 
-    Uses 24H ROLLING REFERENCE approach (like Bybit/Binance):
-    - If 24h change is NEGATIVE → "DROPS TO $X" (floor to nearest milestone)
-    - If 24h change is POSITIVE → "BREAKS $X" (highest milestone crossed)
-    - Only ONE alert per milestone per 24h cooldown
+    Uses REAL-TIME LEVEL TRACKING + 24H TREND FILTER:
+    1. Track last known price level (real-time)
+    2. Determine direction by HOW price entered the zone
+    3. Filter alerts based on 24H trend:
+       - 24H bullish → only send "BREAKS" alerts
+       - 24H bearish → only send "DROPS TO" alerts
 
-    This prevents the confusing scenario where you see:
-    - "DROPS TO $65,000" then "DROPS TO $67,000" (wrong order)
+    This ensures:
+    - Direction matches actual price movement (not 24h reference)
+    - Alerts align with macro trend (no conflicting signals)
+    - 24H cooldown per milestone (default 1440 minutes)
 
     Only works with USDT pairs (BTCUSDT, ETHUSDT) - not PERP.
 
@@ -560,7 +564,6 @@ async def check_and_send_milestone_alerts(
         return False, 0
 
     # Get 24h reference price from Bybit API (prevPrice24h)
-    # This is the stable reference - price exactly 24 hours ago
     reference_price_24h = float(ticker.get('prevPrice24h', 0))
 
     if not reference_price_24h or reference_price_24h <= 0:
@@ -570,21 +573,25 @@ async def check_and_send_milestone_alerts(
     # Calculate 24h percentage change for display
     pct_change = calculate_percentage_change(current_price, reference_price_24h)
 
-    # Get the current milestone level based on 24h direction
-    # Returns ONE milestone: floor for DOWN, ceiling for UP
-    milestone_info = get_current_milestone_24h(current_price, reference_price_24h, milestone_step)
+    # Get milestone using REAL-TIME tracking + 24H trend filter
+    # Returns None if:
+    # - Same level (no movement)
+    # - Direction doesn't match 24H trend (filtered out)
+    milestone_info = get_milestone_realtime_with_trend(
+        symbol, current_price, reference_price_24h, milestone_step
+    )
 
     if not milestone_info:
-        # No milestone crossed between 24h reference and current price
+        # No alert needed (same level or trend mismatch)
         return False, 0
 
     milestone = milestone_info['milestone']
     direction = milestone_info['direction']
     volume_24h = float(ticker.get('turnover24h', 0))
 
-    # Check if we can fire this alert (24h cooldown per milestone)
+    # Check if we can fire this alert (24H cooldown per milestone)
     if not can_fire_milestone_alert(symbol, milestone, direction, current_time):
-        logger.debug(f"Milestone ${milestone} ({direction}) on cooldown for {symbol}")
+        logger.debug(f"Milestone ${milestone:,} ({direction}) on cooldown for {symbol}")
         return False, 0
 
     # Send the alert
