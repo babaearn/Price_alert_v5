@@ -402,7 +402,13 @@ def format_milestone_alert(symbol: str, current_price: float, milestone: float,
         action = "BREAKS"
     else:
         emoji = "📉"
-        action = "DROPS TO"
+        action = "BREAKS BELOW"
+
+    # Format current price - show appropriate decimal places
+    if current_price >= 1000:
+        price_str = f"${current_price:,.2f}"
+    else:
+        price_str = f"${current_price:.2f}"
 
     # Format volume
     if volume_24h >= 1_000_000_000:
@@ -417,8 +423,9 @@ def format_milestone_alert(symbol: str, current_price: float, milestone: float,
 
     message = f"""<b>{display_name} {action} ${milestone:,.0f}</b> {emoji}
 
-▸ Change: {change_str}
-▸ Volume: {volume_str}"""
+▸ Price: {price_str}
+▸ 24h: {change_str}
+▸ Vol: {volume_str}"""
 
     return message
 
