@@ -975,13 +975,9 @@ def get_current_milestone_24h(current_price: float, reference_price_24h: float,
     """
     Get the current milestone level based on 24h rolling reference.
 
-    This implements the Bybit/Binance-style milestone alerts:
-    - If 24h change is NEGATIVE → "DROPS TO" the milestone price dropped below
-    - If 24h change is POSITIVE → "BREAKS" the highest milestone crossed
-
-    IMPORTANT: Only alerts when price has ACTUALLY crossed a milestone.
-    - "DROPS TO $1,900" means current price is AT or BELOW $1,900
-    - "BREAKS $65,000" means current price is AT or ABOVE $65,000
+    Uses FLOOR-based approach - alerts about the level price is currently AT:
+    - DOWN: "DROPS TO $65,000" when price is in $65,000-$65,999 range
+    - UP: "BREAKS $66,000" when price rises above $66,000
 
     Args:
         current_price: Current price
@@ -992,79 +988,49 @@ def get_current_milestone_24h(current_price: float, reference_price_24h: float,
         Dict with 'milestone' and 'direction', or None if no milestone crossed
 
     Examples:
+        # Price dropped from $70,850 to $65,046 (24h down)
+        >>> get_current_milestone_24h(65046, 70850, 1000)
+        {'milestone': 65000, 'direction': 'down'}  # "DROPS TO $65,000"
+
         # Price dropped from $2,129 to $1,896 (24h down)
         >>> get_current_milestone_24h(1896, 2129, 100)
-        {'milestone': 1900, 'direction': 'down'}  # "DROPS TO $1,900" (price below 1900)
-
-        # Price dropped from $67,000 to $65,200 (24h down)
-        >>> get_current_milestone_24h(65200, 67000, 1000)
-        {'milestone': 66000, 'direction': 'down'}  # "DROPS TO $66,000" (price below 66000)
+        {'milestone': 1800, 'direction': 'down'}  # "DROPS TO $1,800"
 
         # Price rose from $63,000 to $65,800 (24h up)
         >>> get_current_milestone_24h(65800, 63000, 1000)
         {'milestone': 65000, 'direction': 'up'}  # "BREAKS $65,000"
 
-        # Price at $65,500, was $65,200 (no milestone crossed)
+        # Price at $65,500, was $65,200 (same level, no alert)
         >>> get_current_milestone_24h(65500, 65200, 1000)
         None
     """
-    import math
-
     if current_price == reference_price_24h:
+        return None
+
+    # Calculate the current level (floor) for both prices
+    current_level = (int(current_price) // milestone_step) * milestone_step
+    reference_level = (int(reference_price_24h) // milestone_step) * milestone_step
+
+    # Only alert if price moved to a DIFFERENT level
+    if current_level == reference_level:
         return None
 
     pct_change = ((current_price - reference_price_24h) / reference_price_24h) * 100
 
     if pct_change < 0:
-        # Price is DOWN from 24h ago
-        # Find the LOWEST milestone that price actually CROSSED BELOW
-        # "DROPS TO $X" means current price is now at or below $X
-        #
-        # Example: price=$1,896, step=$100
-        # - ceil(1896/100) = 19 → milestone = $1,900
-        # - Price $1,896 IS below $1,900, so "DROPS TO $1,900" is accurate
-        #
-        # Example: price=$1,800, step=$100
-        # - ceil(1800/100) = 18 → milestone = $1,800
-        # - Price $1,800 IS at $1,800, so "DROPS TO $1,800" is accurate
-
-        lowest_crossed = math.ceil(current_price / milestone_step) * milestone_step
-
-        # Edge case: if price is exactly on a milestone, that's the one we crossed
-        # ceil(1900/100)*100 = 1900 ✓
-
-        # Verify this milestone was actually crossed (reference was above it)
-        if reference_price_24h > lowest_crossed:
-            return {
-                'milestone': lowest_crossed,
-                'direction': 'down'
-            }
+        # Price is DOWN - alert about current level
+        # Example: price=$65,046 → level=$65,000 → "DROPS TO $65,000"
+        return {
+            'milestone': current_level,
+            'direction': 'down'
+        }
     else:
-        # Price is UP from 24h ago
-        # Find the highest milestone that was crossed
-        # "BREAKS $X" means current price rose above $X
-        #
-        # Example: reference=$63,000, current=$65,800, step=$1,000
-        # - Milestones crossed: $64,000, $65,000
-        # - Highest = $65,000 → "BREAKS $65,000"
-
-        low_price = reference_price_24h
-        high_price = current_price
-
-        # Find the highest milestone between reference and current
-        highest_crossed = None
-        first_milestone = ((int(low_price) // milestone_step) + 1) * milestone_step
-
-        milestone = first_milestone
-        while milestone <= high_price:
-            highest_crossed = milestone
-            milestone += milestone_step
-
-        if highest_crossed:
-            return {
-                'milestone': highest_crossed,
-                'direction': 'up'
-            }
+        # Price is UP - alert about current level
+        # Example: price=$65,800 → level=$65,000 → "BREAKS $65,000"
+        return {
+            'milestone': current_level,
+            'direction': 'up'
+        }
 
     return None
 

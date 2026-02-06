@@ -402,7 +402,7 @@ def format_milestone_alert(symbol: str, current_price: float, milestone: float,
         action = "BREAKS"
     else:
         emoji = "📉"
-        action = "BREAKS BELOW"
+        action = "DROPS TO"
 
     # Format current price - show appropriate decimal places
     if current_price >= 1000:
