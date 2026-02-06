@@ -198,6 +198,15 @@ def create_schema():
         ON milestone_history(symbol, milestone, expires_at)
     """)
 
+    # Last known price for milestone detection (tracks real-time movement)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS milestone_last_price (
+            symbol VARCHAR(20) PRIMARY KEY,
+            last_price DECIMAL(20, 8) NOT NULL,
+            updated_at TIMESTAMP DEFAULT NOW()
+        )
+    """)
+
     conn.commit()
     logger.info("✅ Database schema created/verified")
 
@@ -858,10 +867,114 @@ def record_milestone_alert(symbol: str, milestone: float, direction: str,
         conn.rollback()
 
 
+def get_milestone_last_price(symbol: str) -> Optional[float]:
+    """
+    Get the last known price for milestone tracking.
+
+    This is used to detect real-time milestone crossings by comparing
+    last_price to current_price (not 24h reference).
+
+    Args:
+        symbol: Trading pair symbol (e.g., BTCUSDT)
+
+    Returns:
+        Last known price or None if not set
+    """
+    try:
+        conn, cursor = get_connection()
+
+        cursor.execute("""
+            SELECT last_price FROM milestone_last_price
+            WHERE symbol = %s
+        """, (symbol,))
+
+        result = cursor.fetchone()
+        return float(result['last_price']) if result else None
+
+    except Exception as e:
+        logger.error(f"Error getting last price for {symbol}: {e}")
+        return None
+
+
+def set_milestone_last_price(symbol: str, price: float):
+    """
+    Update the last known price for milestone tracking.
+
+    Called after each scan to track price movement.
+
+    Args:
+        symbol: Trading pair symbol
+        price: Current price to store
+    """
+    try:
+        conn, cursor = get_connection()
+
+        cursor.execute("""
+            INSERT INTO milestone_last_price (symbol, last_price, updated_at)
+            VALUES (%s, %s, NOW())
+            ON CONFLICT (symbol)
+            DO UPDATE SET last_price = EXCLUDED.last_price, updated_at = NOW()
+        """, (symbol, price))
+
+        conn.commit()
+
+    except Exception as e:
+        logger.error(f"Error setting last price for {symbol}: {e}")
+        conn.rollback()
+
+
+def get_crossed_milestones_realtime(current_price: float, last_price: float,
+                                     milestone_step: int) -> List[Dict]:
+    """
+    Calculate which price milestones have been crossed since last check.
+
+    This compares CURRENT price to LAST KNOWN price (not 24h reference)
+    to detect real-time milestone crossings.
+
+    Args:
+        current_price: Current price
+        last_price: Last known price from previous scan
+        milestone_step: Milestone increment (e.g., 1000 for BTC, 100 for ETH)
+
+    Returns:
+        List of crossed milestones with direction
+
+    Example:
+        last_price = 65500, current_price = 64900, step = 1000
+        → Crossed $65,000 going DOWN
+        → Returns [{'milestone': 65000, 'direction': 'down'}]
+    """
+    milestones = []
+
+    if current_price == last_price:
+        return milestones
+
+    direction = 'up' if current_price > last_price else 'down'
+    low_price = min(current_price, last_price)
+    high_price = max(current_price, last_price)
+
+    # Find the first milestone above low_price
+    first_milestone = ((int(low_price) // milestone_step) + 1) * milestone_step
+
+    # Generate all milestones between low and high
+    milestone = first_milestone
+    while milestone <= high_price:
+        milestones.append({
+            'milestone': milestone,
+            'direction': direction
+        })
+        milestone += milestone_step
+
+    return milestones
+
+
 def get_crossed_milestones(symbol: str, current_price: float, reference_price: float,
                            milestone_step: int) -> List[Dict]:
     """
     Calculate which price milestones have been crossed.
+
+    DEPRECATED: Use get_crossed_milestones_realtime instead.
+    This function is kept for backwards compatibility.
 
     Args:
         symbol: Trading pair symbol

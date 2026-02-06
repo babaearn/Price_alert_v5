@@ -11,7 +11,8 @@ from bot.config import (
 from bot.services.database import (
     get_bot_setting, get_24h_ago_price, get_session_start_price,
     can_fire_alert, record_alert, get_custom_thresholds,
-    can_fire_milestone_alert, record_milestone_alert, get_crossed_milestones
+    can_fire_milestone_alert, record_milestone_alert,
+    get_milestone_last_price, set_milestone_last_price, get_crossed_milestones_realtime
 )
 from bot.utils.formatters import format_alert_message, get_symbol_link
 from bot.utils.logger import logger
@@ -521,7 +522,9 @@ async def check_and_send_milestone_alerts(
     """
     Check and send milestone-based alerts for BTC/ETH.
 
-    Only used when btc_eth_alert_mode is 'milestone'.
+    Uses REAL-TIME detection: compares current price to last known price
+    (not 24h reference) to detect actual milestone crossings.
+
     Only works with USDT pairs (BTCUSDT, ETHUSDT) - not PERP.
 
     Args:
@@ -544,20 +547,30 @@ async def check_and_send_milestone_alerts(
     if not milestone_step:
         return False, 0
 
-    # Get reference price
-    reference_price = get_reference_price(symbol, ticker, current_time)
+    # Get LAST KNOWN price (from previous scan)
+    last_price = get_milestone_last_price(symbol)
 
-    if not reference_price or reference_price == 0:
+    # If no last price, store current and return (first run)
+    if last_price is None:
+        set_milestone_last_price(symbol, current_price)
+        logger.info(f"Initialized milestone tracking for {symbol} at ${current_price:,.2f}")
         return False, 0
 
-    # Calculate percentage change for display
-    pct_change = calculate_percentage_change(current_price, reference_price)
+    # Calculate milestones crossed between LAST and CURRENT price
+    crossed = get_crossed_milestones_realtime(current_price, last_price, milestone_step)
 
-    # Calculate crossed milestones
-    crossed = get_crossed_milestones(symbol, current_price, reference_price, milestone_step)
+    # Always update last price for next scan
+    set_milestone_last_price(symbol, current_price)
 
     if not crossed:
         return False, 0
+
+    # Get 24h reference for percentage change display
+    reference_price = get_reference_price(symbol, ticker, current_time)
+    if reference_price and reference_price > 0:
+        pct_change = calculate_percentage_change(current_price, reference_price)
+    else:
+        pct_change = 0.0
 
     alerts_sent = 0
     volume_24h = float(ticker.get('turnover24h', 0))
