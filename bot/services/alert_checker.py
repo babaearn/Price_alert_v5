@@ -298,7 +298,8 @@ async def check_and_send_alerts(
     """
     Check if thresholds crossed and send alerts.
 
-    Supports custom incremental thresholds per symbol.
+    Only sends ONE alert for the HIGHEST crossed threshold to avoid duplicates.
+    E.g., if +69% crosses 10%, 30%, 60% → only alert once for 60%
 
     Args:
         bot: Telegram bot instance
@@ -333,25 +334,27 @@ async def check_and_send_alerts(
         mode_str = f"every ±{custom_thresholds[0]}%" if is_incremental else f"at {custom_thresholds}"
         logger.debug(f"{symbol}: Using custom thresholds ({mode_str})")
 
-    # Check each threshold
-    alerts_sent = 0
     volume_24h = float(ticker.get('turnover24h', 0))
 
-    for threshold in crossed_thresholds:
+    # Find the HIGHEST threshold that can fire (to avoid duplicate alerts)
+    # Sort by absolute value descending to get highest first
+    sorted_thresholds = sorted(crossed_thresholds, key=abs, reverse=True)
+
+    for threshold in sorted_thresholds:
         if can_fire_alert(symbol, threshold, current_time):
-            # Send alert
+            # Send ONE alert for the highest threshold
             success = await send_alert(
                 bot, symbol, current_price, reference_price,
                 pct_change, volume_24h
             )
 
             if success:
-                # Record alert in history
+                # Record alert for THIS threshold
                 record_alert(symbol, threshold, current_time, current_price, pct_change)
-                alerts_sent += 1
                 logger.info(f"🚨 Alert fired: {symbol} {pct_change:+.2f}% (threshold: {threshold:+d}%)")
+                return True, 1  # Return immediately - only ONE alert per scan
 
-    return alerts_sent > 0, alerts_sent
+    return False, 0
 
 
 def classify_movement(pct_change: float) -> str:
