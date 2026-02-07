@@ -1,9 +1,10 @@
-"""User command handlers (public commands)"""
+"""User command handlers (admin-only, DM-only commands)"""
 from datetime import datetime, timedelta
 
 from telegram import Update
 from telegram.ext import ContextTypes
 
+from bot.config import ADMIN_USER_IDS
 from bot.services.database import (
     get_bot_setting, get_all_settings, get_last_scan_log,
     get_scan_stats, get_recent_alerts, get_all_time_stats
@@ -14,12 +15,31 @@ from bot.utils.formatters import format_volume
 from bot.utils.logger import logger
 
 
+def is_admin(user_id: int) -> bool:
+    """Check if user is an admin"""
+    return user_id in ADMIN_USER_IDS
+
+
+def is_private_chat(update: Update) -> bool:
+    """Check if message is from a private chat (DM)"""
+    return update.message.chat.type == 'private'
+
+
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     /start - Welcome message
 
-    Shows bot introduction and current settings.
+    Admin only, DM only. Shows bot introduction and current settings.
     """
+    # Only respond in private chat (DM)
+    if not is_private_chat(update):
+        return  # Silently ignore in group/topic
+
+    # Admin check
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("❌ Admin only")
+        return
+
     settings = get_all_settings()
     mode = settings.get('mode', 'futures')
     model = settings.get('model', 'model2')
@@ -48,8 +68,17 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     /help - Show available commands
 
-    Lists all user and admin commands.
+    Admin only, DM only. Lists all admin commands.
     """
+    # Only respond in private chat (DM)
+    if not is_private_chat(update):
+        return  # Silently ignore in group/topic
+
+    # Admin check
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("❌ Admin only")
+        return
+
     message = """
 📖 <b>Available Commands</b>
 
@@ -93,8 +122,17 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     /status - Show bot status
 
-    Displays current configuration and all active settings.
+    Admin only, DM only. Displays current configuration and all active settings.
     """
+    # Only respond in private chat (DM)
+    if not is_private_chat(update):
+        return  # Silently ignore in group/topic
+
+    # Admin check
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("❌ Admin only")
+        return
+
     settings = get_all_settings()
     mode = settings.get('mode', 'futures')
     model = settings.get('model', 'model2')
@@ -184,8 +222,17 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     /stats - Alert statistics
 
-    Shows recent alerts and top gainers/losers.
+    Admin only, DM only. Shows recent alerts and top gainers/losers.
     """
+    # Only respond in private chat (DM)
+    if not is_private_chat(update):
+        return  # Silently ignore in group/topic
+
+    # Admin check
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("❌ Admin only")
+        return
+
     # Get recent alerts
     alerts = get_recent_alerts(24)
 
@@ -247,8 +294,17 @@ async def cmd_listpairs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     /listpairs - Show monitored pairs
 
-    Lists top pairs by volume that meet the minimum threshold.
+    Admin only, DM only. Lists top pairs by volume that meet the minimum threshold.
     """
+    # Only respond in private chat (DM)
+    if not is_private_chat(update):
+        return  # Silently ignore in group/topic
+
+    # Admin check
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("❌ Admin only")
+        return
+
     mode = get_bot_setting('mode') or 'futures'
     category = get_bybit_category(mode)
     min_volume = float(get_bot_setting('min_volume_usd') or 5000000)

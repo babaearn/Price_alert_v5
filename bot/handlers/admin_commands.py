@@ -18,12 +18,21 @@ def is_admin(user_id: int) -> bool:
     return user_id in ADMIN_USER_IDS
 
 
+def is_private_chat(update: Update) -> bool:
+    """Check if message is from a private chat (DM)"""
+    return update.message.chat.type == 'private'
+
+
 async def cmd_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     /mode <futures|spot> - Switch market mode
 
-    Admin only. Switches between futures and spot markets.
+    Admin only, DM only. Switches between futures and spot markets.
     """
+    # Only respond in private chat (DM)
+    if not is_private_chat(update):
+        return  # Silently ignore in group/topic
+
     user_id = update.effective_user.id
 
     if not is_admin(user_id):
@@ -60,8 +69,12 @@ async def cmd_model1(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     /model1 - Switch to session-based calculation
 
-    Admin only. Sets calculation model to session-based (00:00 UTC reset).
+    Admin only, DM only. Sets calculation model to session-based (00:00 UTC reset).
     """
+    # Only respond in private chat (DM)
+    if not is_private_chat(update):
+        return  # Silently ignore in group/topic
+
     user_id = update.effective_user.id
 
     if not is_admin(user_id):
@@ -87,8 +100,12 @@ async def cmd_model2(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     /model2 - Switch to rolling 24h calculation
 
-    Admin only. Sets calculation model to rolling 24-hour window (Bybit default).
+    Admin only, DM only. Sets calculation model to rolling 24-hour window (Bybit default).
     """
+    # Only respond in private chat (DM)
+    if not is_private_chat(update):
+        return  # Silently ignore in group/topic
+
     user_id = update.effective_user.id
 
     if not is_admin(user_id):
@@ -114,9 +131,13 @@ async def cmd_volume(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     /volume <amount> - Set minimum volume filter
 
-    Admin only. Sets minimum 24h trading volume threshold.
+    Admin only, DM only. Sets minimum 24h trading volume threshold.
     Supports formats: 5M, 5000000, $5M
     """
+    # Only respond in private chat (DM)
+    if not is_private_chat(update):
+        return  # Silently ignore in group/topic
+
     user_id = update.effective_user.id
 
     if not is_admin(user_id):
@@ -157,8 +178,12 @@ async def cmd_volume1(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     /volume1 <amount> - Set minimum volume filter for FUTURES
 
-    Admin only. Sets minimum 24h trading volume threshold for futures mode.
+    Admin only, DM only. Sets minimum 24h trading volume threshold for futures mode.
     """
+    # Only respond in private chat (DM)
+    if not is_private_chat(update):
+        return  # Silently ignore in group/topic
+
     user_id = update.effective_user.id
 
     if not is_admin(user_id):
@@ -200,8 +225,12 @@ async def cmd_volume2(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     /volume2 <amount> - Set minimum volume filter for SPOT
 
-    Admin only. Sets minimum 24h trading volume threshold for spot mode.
+    Admin only, DM only. Sets minimum 24h trading volume threshold for spot mode.
     """
+    # Only respond in private chat (DM)
+    if not is_private_chat(update):
+        return  # Silently ignore in group/topic
+
     user_id = update.effective_user.id
 
     if not is_admin(user_id):
@@ -243,9 +272,13 @@ async def cmd_percentage(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     /percentage - Switch BTC/ETH to percentage-based alerts
 
-    Admin only. Switches BTC and ETH alerts to percentage mode.
+    Admin only, DM only. Switches BTC and ETH alerts to percentage mode.
     BTC: every ±3%, ETH: every ±2%
     """
+    # Only respond in private chat (DM)
+    if not is_private_chat(update):
+        return  # Silently ignore in group/topic
+
     user_id = update.effective_user.id
 
     if not is_admin(user_id):
@@ -275,9 +308,13 @@ async def cmd_milestone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     /milestone - Switch BTC/ETH to price milestone alerts
 
-    Admin only. Switches BTC and ETH alerts to milestone mode.
+    Admin only, DM only. Switches BTC and ETH alerts to milestone mode.
     BTC: every $1000 (90000, 91000, 92000), ETH: every $100 (3100, 3200, 3300)
     """
+    # Only respond in private chat (DM)
+    if not is_private_chat(update):
+        return  # Silently ignore in group/topic
+
     user_id = update.effective_user.id
 
     if not is_admin(user_id):
@@ -307,10 +344,14 @@ async def cmd_cooldown(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     /cooldown <minutes> - Set milestone alert cooldown
 
-    Admin only. Sets the cooldown period between same milestone alerts.
+    Admin only, DM only. Sets the cooldown period between same milestone alerts.
     Prevents spam when price oscillates around a level.
     Default: 60 minutes
     """
+    # Only respond in private chat (DM)
+    if not is_private_chat(update):
+        return  # Silently ignore in group/topic
+
     user_id = update.effective_user.id
 
     if not is_admin(user_id):
@@ -370,8 +411,12 @@ async def cmd_pause(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     /pause - Pause the price scanner
 
-    Admin only. Stops price monitoring and alert generation.
+    Admin only, DM only. Stops price monitoring and alert generation.
     """
+    # Only respond in private chat (DM)
+    if not is_private_chat(update):
+        return  # Silently ignore in group/topic
+
     user_id = update.effective_user.id
 
     if not is_admin(user_id):
@@ -394,8 +439,12 @@ async def cmd_resume(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     /resume - Resume the price scanner
 
-    Admin only. Resumes price monitoring and alert generation.
+    Admin only, DM only. Resumes price monitoring and alert generation.
     """
+    # Only respond in private chat (DM)
+    if not is_private_chat(update):
+        return  # Silently ignore in group/topic
+
     user_id = update.effective_user.id
 
     if not is_admin(user_id):
@@ -417,8 +466,12 @@ async def cmd_resetsession(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     /resetsession - Force session reset
 
-    Admin only. Resets all session prices to current prices (Model 1 only).
+    Admin only, DM only. Resets all session prices to current prices (Model 1 only).
     """
+    # Only respond in private chat (DM)
+    if not is_private_chat(update):
+        return  # Silently ignore in group/topic
+
     user_id = update.effective_user.id
 
     if not is_admin(user_id):
@@ -452,8 +505,12 @@ async def cmd_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     /admin - Show admin status
 
-    Shows whether user is an admin and current admin list.
+    DM only. Shows whether user is an admin and current admin list.
     """
+    # Only respond in private chat (DM)
+    if not is_private_chat(update):
+        return  # Silently ignore in group/topic
+
     user_id = update.effective_user.id
     is_user_admin = is_admin(user_id)
 
@@ -476,7 +533,7 @@ async def cmd_setthreshold(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Dynamic threshold command handler.
 
-    Works for any symbol: /btc 2%, /eth 3%, /sol 5%
+    Admin only, DM only. Works for any symbol: /btc 2%, /eth 3%, /sol 5%
 
     For BTC and ETH:
     - Percentage mode: /btc 3% (every ±3%)
@@ -485,6 +542,10 @@ async def cmd_setthreshold(update: Update, context: ContextTypes.DEFAULT_TYPE):
     For other symbols:
     - Only percentage mode: /sol 5% (every ±5%)
     """
+    # Only respond in private chat (DM)
+    if not is_private_chat(update):
+        return  # Silently ignore in group/topic
+
     user_id = update.effective_user.id
 
     if not is_admin(user_id):
@@ -620,8 +681,12 @@ async def cmd_listthresholds(update: Update, context: ContextTypes.DEFAULT_TYPE)
     """
     /listthresholds - List all custom thresholds
 
-    Admin only. Shows all symbols with custom thresholds.
+    Admin only, DM only. Shows all symbols with custom thresholds.
     """
+    # Only respond in private chat (DM)
+    if not is_private_chat(update):
+        return  # Silently ignore in group/topic
+
     user_id = update.effective_user.id
 
     if not is_admin(user_id):
@@ -669,9 +734,13 @@ async def cmd_resetthreshold(update: Update, context: ContextTypes.DEFAULT_TYPE)
     """
     /resetthreshold <SYMBOL> - Reset symbol to default thresholds
 
-    Admin only. Removes custom threshold for a symbol.
+    Admin only, DM only. Removes custom threshold for a symbol.
     Example: /resetthreshold BTC
     """
+    # Only respond in private chat (DM)
+    if not is_private_chat(update):
+        return  # Silently ignore in group/topic
+
     user_id = update.effective_user.id
 
     if not is_admin(user_id):
