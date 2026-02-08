@@ -589,6 +589,75 @@ async def cmd_241(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"241 mode set to {arg} by user {user_id}")
 
 
+async def cmd_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /time <minutes> - Set milestone lock period
+
+    Admin only, DM only. After ANY milestone alert fires (BREAKS or DROPS),
+    that milestone is locked for this many minutes. Prevents contradicting
+    alerts like "BREAKS $71k" then "DROPS TO $71k" within minutes.
+
+    Default: 30 minutes.
+    """
+    # Only respond in private chat (DM)
+    if not is_private_chat(update):
+        return  # Silently ignore in group/topic
+
+    user_id = update.effective_user.id
+
+    if not is_admin(user_id):
+        await update.message.reply_text("❌ Admin only command")
+        return
+
+    current_lock = get_bot_setting('milestone_lock') or '30'
+
+    if not context.args:
+        await update.message.reply_text(
+            f"⏱️ <b>Milestone Lock Period</b>\n\n"
+            f"Current: <b>{current_lock} minutes</b>\n\n"
+            f"After a milestone alert fires (BREAKS or DROPS),\n"
+            f"that milestone is locked for this period.\n"
+            f"Prevents contradicting alerts on the same level.\n\n"
+            f"<b>Usage:</b> /time &lt;minutes&gt;\n"
+            f"<b>Examples:</b>\n"
+            f"• /time 30 - 30 minutes (default)\n"
+            f"• /time 60 - 1 hour\n"
+            f"• /time 120 - 2 hours",
+            parse_mode='HTML'
+        )
+        return
+
+    try:
+        minutes = int(context.args[0])
+
+        if minutes < 5:
+            await update.message.reply_text("❌ Minimum lock is 5 minutes")
+            return
+
+        if minutes > 1440:
+            await update.message.reply_text("❌ Maximum lock is 1440 minutes (24 hours)")
+            return
+
+        set_bot_setting('milestone_lock', str(minutes), str(user_id))
+
+        if minutes >= 60:
+            display = f"{minutes / 60:.1f} hour{'s' if minutes / 60 != 1 else ''}"
+        else:
+            display = f"{minutes} minutes"
+
+        await update.message.reply_text(
+            f"✅ <b>Milestone Lock Updated</b>\n\n"
+            f"⏱️ Lock period: <b>{display}</b>\n\n"
+            f"Same milestone won't alert again (any direction) for {display}.",
+            parse_mode='HTML'
+        )
+
+        logger.info(f"Milestone lock changed to {minutes}min by user {user_id}")
+
+    except ValueError:
+        await update.message.reply_text("❌ Invalid number. Use: /time 30")
+
+
 async def cmd_setthreshold(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Dynamic threshold command handler.

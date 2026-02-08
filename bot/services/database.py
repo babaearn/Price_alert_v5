@@ -11,7 +11,8 @@ from bot.config import (
     DEFAULT_MIN_VOLUME_FUTURES, DEFAULT_MIN_VOLUME_SPOT,
     DEFAULT_BTC_ETH_ALERT_MODE, DEFAULT_BTC_PERCENTAGE, DEFAULT_ETH_PERCENTAGE,
     DEFAULT_BTC_MILESTONE, DEFAULT_ETH_MILESTONE, DEFAULT_MILESTONE_COOLDOWN,
-    DEFAULT_SHORT_TERM_TREND, DEFAULT_SHORT_TERM_LOOKBACK
+    DEFAULT_SHORT_TERM_TREND, DEFAULT_SHORT_TERM_LOOKBACK,
+    DEFAULT_MILESTONE_LOCK
 )
 from bot.utils.logger import logger
 from bot.utils.token_masker import mask_database_url, mask_error_message
@@ -214,6 +215,13 @@ def create_schema():
             ('short_term_trend', %s, 'system')
         ON CONFLICT (key) DO NOTHING
     """, (DEFAULT_SHORT_TERM_TREND,))
+
+    # Milestone lock: direction-agnostic cooldown (/time command)
+    cursor.execute("""
+        INSERT INTO bot_config (key, value, updated_by) VALUES
+            ('milestone_lock', %s, 'system')
+        ON CONFLICT (key) DO NOTHING
+    """, (str(DEFAULT_MILESTONE_LOCK),))
 
     conn.commit()
     logger.info("✅ Database schema created/verified")
@@ -864,12 +872,16 @@ def get_all_custom_thresholds() -> List[Dict]:
 # Milestone alert functions
 def can_fire_milestone_alert(symbol: str, milestone: float, direction: str, current_time: int) -> bool:
     """
-    Check if milestone alert can fire (24h deduplication).
+    Check if milestone alert can fire (direction-agnostic cooldown).
+
+    Once ANY alert fires for a milestone (BREAKS or DROPS), that milestone
+    is locked for the cooldown period regardless of direction. This prevents
+    contradicting alerts like "BREAKS $71k" then "DROPS TO $71k" within minutes.
 
     Args:
         symbol: Trading pair symbol (e.g., BTCUSDT)
         milestone: Price milestone (e.g., 91000 for BTC)
-        direction: 'up' or 'down'
+        direction: 'up' or 'down' (kept for API compat, NOT used in query)
         current_time: Current Unix timestamp
 
     Returns:
@@ -878,16 +890,16 @@ def can_fire_milestone_alert(symbol: str, milestone: float, direction: str, curr
     try:
         conn, cursor = get_connection()
 
+        # Direction-agnostic: check if ANY alert (up or down) exists for this milestone
         cursor.execute("""
             SELECT expires_at
             FROM milestone_history
             WHERE symbol = %s
               AND milestone = %s
-              AND direction = %s
               AND expires_at > %s
             ORDER BY created_at DESC
             LIMIT 1
-        """, (symbol, milestone, direction, current_time))
+        """, (symbol, milestone, current_time))
 
         result = cursor.fetchone()
         return result is None
@@ -901,9 +913,9 @@ def record_milestone_alert(symbol: str, milestone: float, direction: str,
                            price: float, current_time: int):
     """Record milestone alert in history for deduplication."""
     try:
-        # Get configurable cooldown (in minutes), default 60 minutes
-        cooldown_minutes = int(get_bot_setting('milestone_cooldown') or DEFAULT_MILESTONE_COOLDOWN)
-        expires_at = current_time + (cooldown_minutes * 60)  # Convert minutes to seconds
+        # Use milestone_lock (/time command) for direction-agnostic cooldown
+        lock_minutes = int(get_bot_setting('milestone_lock') or DEFAULT_MILESTONE_LOCK)
+        expires_at = current_time + (lock_minutes * 60)  # Convert minutes to seconds
 
         conn, cursor = get_connection()
 
