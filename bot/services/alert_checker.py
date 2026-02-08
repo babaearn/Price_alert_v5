@@ -601,9 +601,16 @@ async def check_and_send_milestone_alerts(
 
     milestone = milestone_info['milestone']
     direction = milestone_info['direction']
+    skipped = milestone_info.get('skipped_milestones', [])
     volume_24h = float(ticker.get('turnover24h', 0))
 
-    # Check if we can fire this alert (24H cooldown per milestone)
+    # Record ALL skipped boundaries in cooldown first (so they won't fire later)
+    for skipped_ms in skipped:
+        if can_fire_milestone_alert(symbol, skipped_ms, direction, current_time):
+            record_milestone_alert(symbol, skipped_ms, direction, current_price, current_time)
+            logger.debug(f"Skipped milestone ${skipped_ms:,} ({direction}) recorded in cooldown for {symbol}")
+
+    # Check if we can fire this alert (cooldown per milestone)
     if not can_fire_milestone_alert(symbol, milestone, direction, current_time):
         logger.debug(f"Milestone ${milestone:,} ({direction}) on cooldown for {symbol}")
         return False, 0
@@ -616,6 +623,8 @@ async def check_and_send_milestone_alerts(
     if success:
         record_milestone_alert(symbol, milestone, direction, current_price, current_time)
         logger.info(f"🎯 Milestone fired: {symbol} ${milestone:,.0f} ({direction}) | 24h: {pct_change:+.2f}%")
+        if skipped:
+            logger.info(f"   Skipped milestones in cooldown: {['$' + f'{m:,}' for m in skipped]}")
         return True, 1
 
     return False, 0

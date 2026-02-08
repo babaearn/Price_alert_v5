@@ -1043,7 +1043,7 @@ def get_current_milestone_24h(current_price: float, reference_price_24h: float,
     pct_change = ((current_price - reference_price_24h) / reference_price_24h) * 100
 
     if pct_change < 0:
-        return {'milestone': current_level, 'direction': 'down'}
+        return {'milestone': reference_level, 'direction': 'down'}
     else:
         return {'milestone': current_level, 'direction': 'up'}
 
@@ -1058,68 +1058,87 @@ def get_milestone_realtime_with_trend(
     short_term_ref_price: float = None
 ) -> Optional[Dict]:
     """
-    Get milestone alert using REAL-TIME level tracking + trend filter.
+    Detect milestone boundary crossings using EXACT boundary detection + trend filter.
+
+    Instead of floor-based zones, this detects when price crosses an exact
+    round-number boundary (e.g., $70,000) between consecutive scans.
 
     Logic:
-    1. Track last known milestone level (real-time)
-    2. Determine direction by HOW price entered the zone (not 24h ref)
-    3. Filter alerts based on trend:
-       - If 241 mode ON (short_term_ref_price provided): use 1h trend
-       - If 241 mode OFF: use 24h trend (original behavior)
-       - Bearish trend → only allow "DROPS TO" alerts
-       - Bullish trend → only allow "BREAKS" alerts
+    1. Compare last_price and current_price to find crossed boundaries
+    2. Apply 241/24h trend filter
+    3. Return the most relevant crossed boundary + all skipped boundaries
 
-    The 241 mode fixes false "BREAKS" alerts during dumps where the 24h
-    change is positive but the short-term move is clearly bearish.
+    Examples:
+        $70,050 → $69,984 (step=1000):
+          Crossed $70,000 going down → "DROPS TO $70,000"
+
+        $69,950 → $70,001 (step=1000):
+          Crossed $70,000 going up → "BREAKS $70,000"
+
+        $70,000 → $73,000 (step=1000):
+          Crossed $71k, $72k, $73k → Alert: "BREAKS $73,000"
+          Skipped: [$71k, $72k] (recorded in cooldown)
 
     Args:
-        symbol: Trading pair symbol (e.g., BTCUSDT)
+        symbol: Trading pair symbol
         current_price: Current price
         reference_price_24h: 24h reference price for trend filter (fallback)
         milestone_step: Milestone increment (e.g., 1000 for BTC, 100 for ETH)
-        short_term_ref_price: Price from ~1h ago (241 mode). If provided,
-                              used as primary trend filter instead of 24h.
+        short_term_ref_price: Price from ~1h ago (241 mode)
 
     Returns:
-        Dict with 'milestone' and 'direction', or None if no alert should fire
-
-    Examples:
-        # 241 ON: BTC dumped from $71k to $68k, 1h ago was $71k
-        # 24h ref is $65k (looks bullish), but 1h ref is $71k (bearish)
-        >>> get_milestone_realtime_with_trend('BTCUSDT', 68100, 65000, 1000, 71000)
-        None  # BLOCKS false "BREAKS $68k" - 1h trend is bearish
-
-        # 241 OFF: Same scenario falls back to 24h trend
-        >>> get_milestone_realtime_with_trend('BTCUSDT', 68100, 65000, 1000)
-        {'milestone': 68000, 'direction': 'up'}  # Would fire (24h looks bullish)
+        Dict with 'milestone', 'direction', and 'skipped_milestones', or None
     """
-    # Calculate current milestone level (floor)
-    current_level = (int(current_price) // milestone_step) * milestone_step
-
-    # Get last known price and calculate its level
+    # Get last known price from previous scan
     last_price = get_milestone_last_price(symbol)
 
     if last_price is None:
         # First run - store current price and return (no alert)
         set_milestone_last_price(symbol, current_price)
-        logger.info(f"Initialized milestone tracking for {symbol} at ${current_price:,.2f} (level ${current_level:,})")
+        logger.info(f"Initialized milestone tracking for {symbol} at ${current_price:,.2f}")
         return None
-
-    last_level = (int(last_price) // milestone_step) * milestone_step
 
     # Always update stored price for next scan
     set_milestone_last_price(symbol, current_price)
 
-    # Check if we moved to a different level
-    if current_level == last_level:
-        return None  # Same level, no alert
+    # Skip if price hasn't changed
+    if current_price == last_price:
+        return None
 
-    # Determine REAL-TIME direction (how price entered this zone)
-    if current_level > last_level:
-        realtime_direction = 'up'  # Price rose into this zone
+    # --- BOUNDARY CROSSING DETECTION ---
+    # Find all milestone multiples between last_price and current_price
+    low = min(current_price, last_price)
+    high = max(current_price, last_price)
+
+    # First boundary strictly above low: e.g., low=$69,984 → first=$70,000
+    first_boundary = (int(low) // milestone_step + 1) * milestone_step
+
+    # Collect all boundaries between low (exclusive) and high (inclusive)
+    boundaries = []
+    b = first_boundary
+    while b <= high:
+        boundaries.append(b)
+        b += milestone_step
+
+    if not boundaries:
+        # No boundary crossed (price stayed within same range)
+        return None
+
+    # Determine direction
+    if current_price > last_price:
+        direction = 'up'
+        # Report the HIGHEST boundary (closest to current price going up)
+        alert_milestone = boundaries[-1]
+        # All others are skipped (need cooldown recording)
+        skipped = boundaries[:-1]
     else:
-        realtime_direction = 'down'  # Price fell into this zone
+        direction = 'down'
+        # Report the LOWEST boundary (closest to current price going down)
+        alert_milestone = boundaries[0]
+        # All others are skipped (need cooldown recording)
+        skipped = boundaries[1:]
 
+    # --- TREND FILTER (241 mode) ---
     # Select trend reference: 1h (241 mode) or 24h (default)
     if short_term_ref_price and short_term_ref_price > 0:
         trend_ref_price = short_term_ref_price
@@ -1128,27 +1147,27 @@ def get_milestone_realtime_with_trend(
         trend_ref_price = reference_price_24h
         trend_label = "24h"
 
-    # Calculate trend from selected reference
     pct_change_trend = ((current_price - trend_ref_price) / trend_ref_price) * 100
     is_bullish = pct_change_trend >= 0
 
     # Apply trend filter
-    # Only send alert if real-time direction MATCHES trend
-    if realtime_direction == 'up' and not is_bullish:
-        # Price moved up but trend is bearish - SKIP (dead cat bounce)
-        logger.debug(f"{symbol}: Skipping BREAKS alert ({trend_label} trend bearish: {pct_change_trend:.2f}%)")
+    if direction == 'up' and not is_bullish:
+        logger.debug(f"{symbol}: Skipping BREAKS ${alert_milestone:,} ({trend_label} trend bearish: {pct_change_trend:.2f}%)")
         return None
 
-    if realtime_direction == 'down' and is_bullish:
-        # Price moved down but trend is bullish - SKIP (healthy pullback)
-        logger.debug(f"{symbol}: Skipping DROPS alert ({trend_label} trend bullish: {pct_change_trend:.2f}%)")
+    if direction == 'down' and is_bullish:
+        logger.debug(f"{symbol}: Skipping DROPS ${alert_milestone:,} ({trend_label} trend bullish: {pct_change_trend:.2f}%)")
         return None
 
-    # Alert direction matches trend - allow alert
-    logger.debug(f"{symbol}: Milestone ${current_level:,} ({realtime_direction}) allowed by {trend_label} trend ({pct_change_trend:+.2f}%)")
+    logger.debug(
+        f"{symbol}: Boundary ${alert_milestone:,} ({direction}) crossed | "
+        f"{trend_label} trend: {pct_change_trend:+.2f}% | skipped: {len(skipped)}"
+    )
+
     return {
-        'milestone': current_level,
-        'direction': realtime_direction
+        'milestone': alert_milestone,
+        'direction': direction,
+        'skipped_milestones': skipped
     }
 
 
