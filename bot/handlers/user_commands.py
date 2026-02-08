@@ -113,6 +113,10 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 /btc 1000 - Set BTC milestone step ($1000)
 /eth 100 - Set ETH milestone step ($100)
 /cooldown &lt;min&gt; - Set milestone cooldown (default: 60)
+
+🔬 <b>Sensor Fix (241):</b>
+/241 on - Use 1h trend filter (catches dumps)
+/241 off - Use 24h trend filter (original)
 """
 
     await update.message.reply_text(message.strip(), parse_mode='HTML')
@@ -150,6 +154,10 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     eth_milestone = settings.get('eth_milestone', '100')
     cooldown = settings.get('milestone_cooldown', '60')
 
+    # 241 mode
+    short_term = settings.get('short_term_trend', 'true')
+    st_display = "ON" if short_term == 'true' else "OFF"
+
     # Status indicators
     if paused:
         status_emoji = "⏸️ PAUSED"
@@ -173,6 +181,7 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ▸ Active: {active_volume} ({mode})
 
 💰 <b>BTC/ETH Alert Mode:</b> {btc_eth_mode.upper()}
+🔬 <b>241 (1h Trend):</b> {st_display}
 """
 
     if btc_eth_mode == 'milestone':

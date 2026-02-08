@@ -10,7 +10,8 @@ from bot.config import (
     DEFAULT_MIN_VOLUME_USD, DEFAULT_SCAN_INTERVAL,
     DEFAULT_MIN_VOLUME_FUTURES, DEFAULT_MIN_VOLUME_SPOT,
     DEFAULT_BTC_ETH_ALERT_MODE, DEFAULT_BTC_PERCENTAGE, DEFAULT_ETH_PERCENTAGE,
-    DEFAULT_BTC_MILESTONE, DEFAULT_ETH_MILESTONE, DEFAULT_MILESTONE_COOLDOWN
+    DEFAULT_BTC_MILESTONE, DEFAULT_ETH_MILESTONE, DEFAULT_MILESTONE_COOLDOWN,
+    DEFAULT_SHORT_TERM_TREND, DEFAULT_SHORT_TERM_LOOKBACK
 )
 from bot.utils.logger import logger
 from bot.utils.token_masker import mask_database_url, mask_error_message
@@ -207,6 +208,13 @@ def create_schema():
         )
     """)
 
+    # 241 mode: short-term trend setting
+    cursor.execute("""
+        INSERT INTO bot_config (key, value, updated_by) VALUES
+            ('short_term_trend', %s, 'system')
+        ON CONFLICT (key) DO NOTHING
+    """, (DEFAULT_SHORT_TERM_TREND,))
+
     conn.commit()
     logger.info("✅ Database schema created/verified")
 
@@ -306,6 +314,53 @@ def get_24h_ago_price(symbol: str, mode: str, current_timestamp: int) -> Optiona
 
     except Exception as e:
         logger.error(f"Error getting 24h ago price for {symbol}: {e}")
+        return None
+
+
+def get_short_term_price(symbol: str, mode: str, current_timestamp: int,
+                         lookback_seconds: int = None) -> Optional[float]:
+    """
+    Get price from X seconds ago for short-term trend detection (241 mode).
+
+    Used to determine the recent trend (e.g., 1h) instead of relying only on 24h.
+    This catches dumps/pumps that the 24h filter misses.
+
+    Args:
+        symbol: Trading pair symbol
+        mode: Market mode (futures/spot)
+        current_timestamp: Current Unix timestamp
+        lookback_seconds: How far back to look (default from config, ~1 hour)
+
+    Returns:
+        Price from lookback period ago, or None if not found
+    """
+    if lookback_seconds is None:
+        lookback_seconds = DEFAULT_SHORT_TERM_LOOKBACK
+
+    try:
+        target_timestamp = current_timestamp - lookback_seconds
+        conn, cursor = get_connection()
+
+        # Find closest price snapshot within 5 minutes of target time
+        cursor.execute("""
+            SELECT price, timestamp
+            FROM price_snapshots
+            WHERE symbol = %s AND mode = %s
+              AND timestamp BETWEEN %s AND %s
+            ORDER BY ABS(timestamp - %s)
+            LIMIT 1
+        """, (symbol, mode, target_timestamp - 300, target_timestamp + 300, target_timestamp))
+
+        result = cursor.fetchone()
+
+        if result:
+            return float(result['price'])
+        else:
+            logger.debug(f"No short-term history for {symbol} ({lookback_seconds}s lookback)")
+            return None
+
+    except Exception as e:
+        logger.error(f"Error getting short-term price for {symbol}: {e}")
         return None
 
 
@@ -999,42 +1054,44 @@ def get_milestone_realtime_with_trend(
     symbol: str,
     current_price: float,
     reference_price_24h: float,
-    milestone_step: int
+    milestone_step: int,
+    short_term_ref_price: float = None
 ) -> Optional[Dict]:
     """
-    Get milestone alert using REAL-TIME level tracking + 24H trend filter.
+    Get milestone alert using REAL-TIME level tracking + trend filter.
 
     Logic:
     1. Track last known milestone level (real-time)
     2. Determine direction by HOW price entered the zone (not 24h ref)
-    3. Filter alerts based on 24H trend:
-       - 24H negative → only allow "DROPS TO" alerts
-       - 24H positive → only allow "BREAKS" alerts
+    3. Filter alerts based on trend:
+       - If 241 mode ON (short_term_ref_price provided): use 1h trend
+       - If 241 mode OFF: use 24h trend (original behavior)
+       - Bearish trend → only allow "DROPS TO" alerts
+       - Bullish trend → only allow "BREAKS" alerts
+
+    The 241 mode fixes false "BREAKS" alerts during dumps where the 24h
+    change is positive but the short-term move is clearly bearish.
 
     Args:
         symbol: Trading pair symbol (e.g., BTCUSDT)
         current_price: Current price
-        reference_price_24h: 24h reference price for trend filter
+        reference_price_24h: 24h reference price for trend filter (fallback)
         milestone_step: Milestone increment (e.g., 1000 for BTC, 100 for ETH)
+        short_term_ref_price: Price from ~1h ago (241 mode). If provided,
+                              used as primary trend filter instead of 24h.
 
     Returns:
         Dict with 'milestone' and 'direction', or None if no alert should fire
 
     Examples:
-        # Last level was $65k, price moved up to $66k zone
-        # 24h change is positive (bullish)
-        >>> get_milestone_realtime_with_trend('BTCUSDT', 66200, 63000, 1000)
-        {'milestone': 66000, 'direction': 'up'}  # "BREAKS $66,000" ✅
+        # 241 ON: BTC dumped from $71k to $68k, 1h ago was $71k
+        # 24h ref is $65k (looks bullish), but 1h ref is $71k (bearish)
+        >>> get_milestone_realtime_with_trend('BTCUSDT', 68100, 65000, 1000, 71000)
+        None  # BLOCKS false "BREAKS $68k" - 1h trend is bearish
 
-        # Last level was $65k, price moved up to $66k zone
-        # BUT 24h change is negative (bearish) - SKIP bullish alert
-        >>> get_milestone_realtime_with_trend('BTCUSDT', 66200, 70000, 1000)
-        None  # Skip - trend mismatch
-
-        # Last level was $67k, price dropped to $66k zone
-        # 24h change is negative (bearish)
-        >>> get_milestone_realtime_with_trend('BTCUSDT', 66200, 70000, 1000)
-        {'milestone': 66000, 'direction': 'down'}  # "DROPS TO $66,000" ✅
+        # 241 OFF: Same scenario falls back to 24h trend
+        >>> get_milestone_realtime_with_trend('BTCUSDT', 68100, 65000, 1000)
+        {'milestone': 68000, 'direction': 'up'}  # Would fire (24h looks bullish)
     """
     # Calculate current milestone level (floor)
     current_level = (int(current_price) // milestone_step) * milestone_step
@@ -1063,23 +1120,32 @@ def get_milestone_realtime_with_trend(
     else:
         realtime_direction = 'down'  # Price fell into this zone
 
-    # Calculate 24H trend
-    pct_change_24h = ((current_price - reference_price_24h) / reference_price_24h) * 100
-    is_24h_bullish = pct_change_24h >= 0
+    # Select trend reference: 1h (241 mode) or 24h (default)
+    if short_term_ref_price and short_term_ref_price > 0:
+        trend_ref_price = short_term_ref_price
+        trend_label = "1h"
+    else:
+        trend_ref_price = reference_price_24h
+        trend_label = "24h"
 
-    # Apply 24H trend filter
-    # Only send alert if real-time direction MATCHES 24H trend
-    if realtime_direction == 'up' and not is_24h_bullish:
-        # Price moved up but 24H is bearish - SKIP
-        logger.debug(f"{symbol}: Skipping BREAKS alert (24h trend bearish: {pct_change_24h:.2f}%)")
+    # Calculate trend from selected reference
+    pct_change_trend = ((current_price - trend_ref_price) / trend_ref_price) * 100
+    is_bullish = pct_change_trend >= 0
+
+    # Apply trend filter
+    # Only send alert if real-time direction MATCHES trend
+    if realtime_direction == 'up' and not is_bullish:
+        # Price moved up but trend is bearish - SKIP (dead cat bounce)
+        logger.debug(f"{symbol}: Skipping BREAKS alert ({trend_label} trend bearish: {pct_change_trend:.2f}%)")
         return None
 
-    if realtime_direction == 'down' and is_24h_bullish:
-        # Price moved down but 24H is bullish - SKIP
-        logger.debug(f"{symbol}: Skipping DROPS alert (24h trend bullish: {pct_change_24h:.2f}%)")
+    if realtime_direction == 'down' and is_bullish:
+        # Price moved down but trend is bullish - SKIP (healthy pullback)
+        logger.debug(f"{symbol}: Skipping DROPS alert ({trend_label} trend bullish: {pct_change_trend:.2f}%)")
         return None
 
-    # Alert direction matches 24H trend - allow alert
+    # Alert direction matches trend - allow alert
+    logger.debug(f"{symbol}: Milestone ${current_level:,} ({realtime_direction}) allowed by {trend_label} trend ({pct_change_trend:+.2f}%)")
     return {
         'milestone': current_level,
         'direction': realtime_direction

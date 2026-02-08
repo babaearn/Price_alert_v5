@@ -55,6 +55,12 @@ DEFAULT_BTC_MILESTONE = 1000  # Alert every $1000 (90000, 91000, 92000)
 DEFAULT_ETH_MILESTONE = 100  # Alert every $100 (3100, 3200, 3300)
 DEFAULT_MILESTONE_COOLDOWN = 1440  # Minutes between same milestone alerts (24 hours default)
 
+# 241 Mode: Short-term trend filter for milestone alerts
+# When ON, uses 1h price trend (instead of 24h) for milestone direction filtering
+# Prevents false "BREAKS" alerts during dumps and false "DROPS" during pumps
+DEFAULT_SHORT_TERM_TREND = 'true'  # 'true' = ON, 'false' = OFF
+DEFAULT_SHORT_TERM_LOOKBACK = 3600  # Lookback window in seconds (1 hour)
+
 # Thresholds
 # Base: ±10%, ±30%, ±60%, ±80%, ±100%
 # After ±100%: Alert every ±50%

@@ -12,7 +12,7 @@ from bot.services.database import (
     get_bot_setting, get_24h_ago_price, get_session_start_price,
     can_fire_alert, record_alert, get_custom_thresholds,
     can_fire_milestone_alert, record_milestone_alert,
-    get_milestone_realtime_with_trend
+    get_milestone_realtime_with_trend, get_short_term_price
 )
 from bot.utils.formatters import format_alert_message, get_symbol_link
 from bot.utils.logger import logger
@@ -576,12 +576,23 @@ async def check_and_send_milestone_alerts(
     # Calculate 24h percentage change for display
     pct_change = calculate_percentage_change(current_price, reference_price_24h)
 
-    # Get milestone using REAL-TIME tracking + 24H trend filter
+    # Check if 241 mode (short-term trend) is enabled
+    short_term_ref_price = None
+    use_short_term = get_bot_setting('short_term_trend') == 'true'
+
+    if use_short_term:
+        mode = get_bot_setting('mode') or 'futures'
+        short_term_ref_price = get_short_term_price(symbol, mode, current_time)
+
+    # Get milestone using REAL-TIME tracking + trend filter
+    # When 241 ON: uses 1h trend (catches dumps that 24h misses)
+    # When 241 OFF: uses 24h trend (original behavior)
     # Returns None if:
     # - Same level (no movement)
-    # - Direction doesn't match 24H trend (filtered out)
+    # - Direction doesn't match trend (filtered out)
     milestone_info = get_milestone_realtime_with_trend(
-        symbol, current_price, reference_price_24h, milestone_step
+        symbol, current_price, reference_price_24h, milestone_step,
+        short_term_ref_price=short_term_ref_price
     )
 
     if not milestone_info:

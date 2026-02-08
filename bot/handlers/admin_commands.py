@@ -529,6 +529,66 @@ async def cmd_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
+async def cmd_241(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /241 <on|off> - Toggle short-term trend filter for milestone alerts
+
+    Admin only, DM only. When ON, uses 1h price trend instead of 24h to filter
+    milestone direction. Prevents false "BREAKS" alerts during dumps and
+    false "DROPS TO" alerts during pumps.
+
+    Name "241" = dual timeframe (24h + 1h).
+    """
+    # Only respond in private chat (DM)
+    if not is_private_chat(update):
+        return  # Silently ignore in group/topic
+
+    user_id = update.effective_user.id
+
+    if not is_admin(user_id):
+        await update.message.reply_text("❌ Admin only command")
+        return
+
+    current = get_bot_setting('short_term_trend') or 'true'
+
+    if not context.args:
+        status = "ON" if current == 'true' else "OFF"
+        await update.message.reply_text(
+            f"🔬 <b>241 - Short-Term Trend Filter</b>\n\n"
+            f"Status: <b>{status}</b>\n\n"
+            f"When ON: Uses 1h price trend to filter milestone\n"
+            f"direction instead of 24h. Prevents false BREAKS\n"
+            f"alerts during dumps and false DROPS during pumps.\n\n"
+            f"<b>Usage:</b> /241 on | /241 off",
+            parse_mode='HTML'
+        )
+        return
+
+    arg = context.args[0].lower()
+
+    if arg not in ('on', 'off'):
+        await update.message.reply_text("❌ Usage: /241 on or /241 off")
+        return
+
+    new_value = 'true' if arg == 'on' else 'false'
+    set_bot_setting('short_term_trend', new_value, str(user_id))
+
+    status = "ON" if new_value == 'true' else "OFF"
+
+    if arg == 'on':
+        desc = "Using 1h trend for milestone direction filter."
+    else:
+        desc = "Using 24h trend for milestone direction filter (default behavior)."
+
+    await update.message.reply_text(
+        f"✅ <b>241 Mode: {status}</b>\n\n"
+        f"{desc}",
+        parse_mode='HTML'
+    )
+
+    logger.info(f"241 mode set to {arg} by user {user_id}")
+
+
 async def cmd_setthreshold(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Dynamic threshold command handler.
