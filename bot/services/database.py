@@ -1043,7 +1043,7 @@ def get_current_milestone_24h(current_price: float, reference_price_24h: float,
     pct_change = ((current_price - reference_price_24h) / reference_price_24h) * 100
 
     if pct_change < 0:
-        return {'milestone': current_level, 'direction': 'down'}
+        return {'milestone': reference_level, 'direction': 'down'}
     else:
         return {'milestone': current_level, 'direction': 'up'}
 
@@ -1145,9 +1145,16 @@ def get_milestone_realtime_with_trend(
         return None
 
     # Alert direction matches trend - allow alert
-    logger.debug(f"{symbol}: Milestone ${current_level:,} ({realtime_direction}) allowed by {trend_label} trend ({pct_change_trend:+.2f}%)")
+    # For "down": report last_level (the boundary we dropped below)
+    # For "up": report current_level (the boundary we broke above)
+    if realtime_direction == 'down':
+        milestone = last_level
+    else:
+        milestone = current_level
+
+    logger.debug(f"{symbol}: Milestone ${milestone:,} ({realtime_direction}) allowed by {trend_label} trend ({pct_change_trend:+.2f}%)")
     return {
-        'milestone': current_level,
+        'milestone': milestone,
         'direction': realtime_direction
     }
 
