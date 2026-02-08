@@ -112,7 +112,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 /milestone - Use milestone mode (price levels)
 /btc 1000 - Set BTC milestone step ($1000)
 /eth 100 - Set ETH milestone step ($100)
-/cooldown &lt;min&gt; - Set milestone cooldown (default: 60)
+/time &lt;min&gt; - Milestone lock period (default: 30)
 
 🔬 <b>Sensor Fix (241):</b>
 /241 on - Use 1h trend filter (catches dumps)
@@ -152,7 +152,7 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     eth_pct = settings.get('eth_percentage', '2')
     btc_milestone = settings.get('btc_milestone', '1000')
     eth_milestone = settings.get('eth_milestone', '100')
-    cooldown = settings.get('milestone_cooldown', '60')
+    lock_time = settings.get('milestone_lock', '30')
 
     # 241 mode
     short_term = settings.get('short_term_trend', 'true')
@@ -187,7 +187,7 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if btc_eth_mode == 'milestone':
         message += f"""▸ BTC: Every ${btc_milestone}
 ▸ ETH: Every ${eth_milestone}
-▸ Cooldown: {cooldown} min
+▸ Lock: {lock_time} min
 """
     else:
         message += f"""▸ BTC: Every ±{btc_pct}%

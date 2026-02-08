@@ -177,11 +177,11 @@ async def scan_prices():
                 # Store price snapshot for rolling 24h calculation
                 store_price_snapshot(symbol, mode, current_price, current_time)
 
-                # Check if this is BTC or ETH and we're in milestone mode
-                is_btc_eth = 'BTC' in symbol.upper() or 'ETH' in symbol.upper()
+                # Check if this is BTCUSDT or ETHUSDT specifically (not BTCPERP, BTCDOMUSDT, etc.)
+                is_btc_eth_usdt = symbol.upper() in ('BTCUSDT', 'ETHUSDT')
 
-                if is_btc_eth and use_milestone_mode:
-                    # Use milestone-based alerts for BTC/ETH
+                if is_btc_eth_usdt and use_milestone_mode:
+                    # Use milestone-based alerts for BTC/ETH (skip percentage entirely)
                     alert_sent, alert_count = await check_and_send_milestone_alerts(
                         _bot, symbol, current_price, ticker, current_time
                     )

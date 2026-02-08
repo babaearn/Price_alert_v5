@@ -54,6 +54,7 @@ DEFAULT_ETH_PERCENTAGE = 2  # Alert every ±2%
 DEFAULT_BTC_MILESTONE = 1000  # Alert every $1000 (90000, 91000, 92000)
 DEFAULT_ETH_MILESTONE = 100  # Alert every $100 (3100, 3200, 3300)
 DEFAULT_MILESTONE_COOLDOWN = 1440  # Minutes between same milestone alerts (24 hours default)
+DEFAULT_MILESTONE_LOCK = 30  # Minutes to lock a milestone after ANY alert (direction-agnostic)
 
 # 241 Mode: Short-term trend filter for milestone alerts
 # When ON, uses 1h price trend (instead of 24h) for milestone direction filtering
