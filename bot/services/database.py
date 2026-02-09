@@ -215,13 +215,6 @@ def create_schema():
         ON CONFLICT (key) DO NOTHING
     """, (DEFAULT_SHORT_TERM_TREND,))
 
-    # Milestone lock: direction-agnostic cooldown (/time command)
-    cursor.execute("""
-        INSERT INTO bot_config (key, value, updated_by) VALUES
-            ('milestone_lock', %s, 'system')
-        ON CONFLICT (key) DO NOTHING
-    """, (str(DEFAULT_MILESTONE_LOCK),))
-
     conn.commit()
     logger.info("✅ Database schema created/verified")
 
