@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Price Alert Bot v5 - High Level Architecture</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: #ffffff;
+    padding: 40px;
+    color: #1a1a2e;
+  }
+  h1 {
+    font-size: 28px;
+    font-weight: 600;
+    margin-bottom: 40px;
+    color: #1a1a2e;
+  }
+  .canvas {
+    position: relative;
+    width: 1200px;
+    height: 820px;
+    margin: 0 auto;
+  }
+  .box {
+    position: absolute;
+    background: #ffffff;
+    border: 2px solid #d1d5db;
+    border-radius: 12px;
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 14px;
+    font-weight: 500;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    z-index: 2;
+    white-space: nowrap;
+  }
+  .box .icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    flex-shrink: 0;
+  }
+  .box .label { display: flex; flex-direction: column; }
+  .box .label .name { font-weight: 600; font-size: 14px; }
+  .box .label .sub { font-weight: 400; font-size: 11px; color: #6b7280; margin-top: 2px; }
+
+  /* Color themes */
+  .theme-user .icon { background: #e0e7ff; color: #4338ca; }
+  .theme-telegram .icon { background: #dbeafe; color: #2563eb; }
+  .theme-handler .icon { background: #fef3c7; color: #d97706; }
+  .theme-service .icon { background: #d1fae5; color: #059669; }
+  .theme-db .icon { background: #fce7f3; color: #db2777; }
+  .theme-external .icon { background: #e0e7ff; color: #7c3aed; }
+  .theme-scheduler .icon { background: #ffedd5; color: #ea580c; }
+  .theme-alert .icon { background: #fee2e2; color: #dc2626; }
+  .theme-channel .icon { background: #dbeafe; color: #2563eb; }
+  .theme-deploy .icon { background: #f3e8ff; color: #7c3aed; }
+
+  /* Highlighted core box */
+  .core {
+    border: 2px solid #3b82f6;
+    box-shadow: 0 4px 16px rgba(59,130,246,0.15);
+  }
+
+  /* SVG arrows */
+  svg.arrows {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: 1;
+    pointer-events: none;
+  }
+  .arrow-line {
+    stroke: #9ca3af;
+    stroke-width: 2;
+    fill: none;
+  }
+  .arrow-line.dashed {
+    stroke-dasharray: 6 4;
+  }
+  .arrow-head {
+    fill: #9ca3af;
+  }
+  .arrow-line.blue { stroke: #3b82f6; }
+  .arrow-head.blue { fill: #3b82f6; }
+  .arrow-line.green { stroke: #059669; }
+  .arrow-head.green { fill: #059669; }
+  .arrow-line.red { stroke: #dc2626; }
+  .arrow-head.red { fill: #dc2626; }
+  .arrow-line.orange { stroke: #ea580c; }
+  .arrow-head.orange { fill: #ea580c; }
+
+  /* Legend */
+  .legend {
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-size: 12px;
+    z-index: 3;
+  }
+  .legend-title { font-weight: 600; margin-bottom: 8px; }
+  .legend-item { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+  .legend-line { width: 24px; height: 2px; }
+  .legend-line.solid { background: #9ca3af; }
+  .legend-line.dashed { background: repeating-linear-gradient(to right, #9ca3af 0, #9ca3af 6px, transparent 6px, transparent 10px); }
+  .legend-line.blue-solid { background: #3b82f6; }
+  .legend-line.green-solid { background: #059669; }
+
+  /* Group labels */
+  .group-label {
+    position: absolute;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #9ca3af;
+    z-index: 3;
+  }
+
+  /* Subtitle */
+  .subtitle {
+    font-size: 14px;
+    color: #6b7280;
+    margin-top: -30px;
+    margin-bottom: 30px;
+  }
+</style>
+</head>
+<body>
+
+<h1>High-Level Architecture</h1>
+<p class="subtitle">Price Alert Bot v5 — Bybit Crypto Monitoring System</p>
+
+<div class="canvas">
+
+  <!-- Group Labels -->
+  <div class="group-label" style="top: 5px; left: 0;">INTERFACE</div>
+  <div class="group-label" style="top: 5px; left: 380px;">CORE ENGINE</div>
+  <div class="group-label" style="top: 5px; left: 840px;">EXTERNAL</div>
+  <div class="group-label" style="top: 555px; left: 380px;">ALERT PIPELINE</div>
+
+  <!-- ===== ROW 1: User & Telegram ===== -->
+
+  <!-- Admin/User -->
+  <div class="box theme-user" style="top: 40px; left: 20px;">
+    <div class="icon">&#128100;</div>
+    <div class="label">
+      <span class="name">Admin</span>
+      <span class="sub">Telegram DM</span>
+    </div>
+  </div>
+
+  <!-- Telegram Bot (Application) -->
+  <div class="box theme-telegram core" style="top: 40px; left: 220px; width: 180px;">
+    <div class="icon">&#129302;</div>
+    <div class="label">
+      <span class="name">Telegram Bot</span>
+      <span class="sub">python-telegram-bot 20.7</span>
+    </div>
+  </div>
+
+  <!-- Command Handlers -->
+  <div class="box theme-handler" style="top: 40px; left: 470px; width: 180px;">
+    <div class="icon">&#9881;</div>
+    <div class="label">
+      <span class="name">Command Handlers</span>
+      <span class="sub">admin + user commands</span>
+    </div>
+  </div>
+
+  <!-- ===== ROW 2: Core Services ===== -->
+
+  <!-- Price Monitor -->
+  <div class="box theme-service core" style="top: 160px; left: 380px; width: 200px;">
+    <div class="icon">&#128200;</div>
+    <div class="label">
+      <span class="name">Price Monitor</span>
+      <span class="sub">Scans every 30 seconds</span>
+    </div>
+  </div>
+
+  <!-- APScheduler -->
+  <div class="box theme-scheduler" style="top: 160px; left: 170px; width: 160px;">
+    <div class="icon">&#9202;</div>
+    <div class="label">
+      <span class="name">APScheduler</span>
+      <span class="sub">3 scheduled jobs</span>
+    </div>
+  </div>
+
+  <!-- Bybit API -->
+  <div class="box theme-external" style="top: 160px; left: 840px; width: 190px;">
+    <div class="icon">&#127760;</div>
+    <div class="label">
+      <span class="name">Bybit REST API</span>
+      <span class="sub">/v5/market/tickers</span>
+    </div>
+  </div>
+
+  <!-- ===== ROW 3: Processing Layer ===== -->
+
+  <!-- Volume Filter -->
+  <div class="box theme-service" style="top: 280px; left: 430px; width: 170px;">
+    <div class="icon">&#128202;</div>
+    <div class="label">
+      <span class="name">Volume Filter</span>
+      <span class="sub">475+ pairs &gt; $25M</span>
+    </div>
+  </div>
+
+  <!-- Price Snapshots Store -->
+  <div class="box theme-service" style="top: 280px; left: 670px; width: 170px;">
+    <div class="icon">&#128190;</div>
+    <div class="label">
+      <span class="name">Store Snapshots</span>
+      <span class="sub">price_snapshots table</span>
+    </div>
+  </div>
+
+  <!-- ===== ROW 4: Alert Detection Split ===== -->
+
+  <!-- Routing -->
+  <div class="box theme-service" style="top: 390px; left: 450px; width: 160px;">
+    <div class="icon">&#128256;</div>
+    <div class="label">
+      <span class="name">Alert Router</span>
+      <span class="sub">BTC/ETH vs Others</span>
+    </div>
+  </div>
+
+  <!-- ===== ROW 5: Two Alert Modes ===== -->
+
+  <!-- Percentage Alert Engine -->
+  <div class="box theme-alert" style="top: 500px; left: 200px; width: 220px;">
+    <div class="icon">&#128314;</div>
+    <div class="label">
+      <span class="name">Percentage Engine</span>
+      <span class="sub">All coins: [10,30,60,80,100]%</span>
+    </div>
+  </div>
+
+  <!-- Milestone Alert Engine -->
+  <div class="box theme-alert core" style="top: 500px; left: 660px; width: 230px;">
+    <div class="icon">&#127942;</div>
+    <div class="label">
+      <span class="name">Milestone Engine</span>
+      <span class="sub">BTC $1k / ETH $100 steps</span>
+    </div>
+  </div>
+
+  <!-- ===== ROW 5b: Milestone sub-components ===== -->
+
+  <!-- 241 Mode -->
+  <div class="box theme-scheduler" style="top: 590px; left: 880px; width: 170px;">
+    <div class="icon">&#128337;</div>
+    <div class="label">
+      <span class="name">241 Trend Filter</span>
+      <span class="sub">1h short-term check</span>
+    </div>
+  </div>
+
+  <!-- Boundary Detection -->
+  <div class="box theme-service" style="top: 590px; left: 640px; width: 200px;">
+    <div class="icon">&#128205;</div>
+    <div class="label">
+      <span class="name">Boundary Detection</span>
+      <span class="sub">Exact crossing logic</span>
+    </div>
+  </div>
+
+  <!-- ===== ROW 6: Cooldown & Output ===== -->
+
+  <!-- Cooldown Check -->
+  <div class="box theme-handler" style="top: 680px; left: 420px; width: 200px;">
+    <div class="icon">&#128274;</div>
+    <div class="label">
+      <span class="name">Cooldown Manager</span>
+      <span class="sub">Direction-agnostic lock</span>
+    </div>
+  </div>
+
+  <!-- Telegram Channel -->
+  <div class="box theme-channel" style="top: 770px; left: 420px; width: 200px;">
+    <div class="icon">&#128226;</div>
+    <div class="label">
+      <span class="name">Telegram Channel</span>
+      <span class="sub">Alert messages + buttons</span>
+    </div>
+  </div>
+
+  <!-- ===== RIGHT SIDE: Database & Deploy ===== -->
+
+  <!-- PostgreSQL -->
+  <div class="box theme-db core" style="top: 390px; left: 50px; width: 170px;">
+    <div class="icon">&#128451;</div>
+    <div class="label">
+      <span class="name">PostgreSQL</span>
+      <span class="sub">9 tables, Railway hosted</span>
+    </div>
+  </div>
+
+  <!-- Cleanup Service -->
+  <div class="box theme-service" style="top: 280px; left: 130px; width: 180px;">
+    <div class="icon">&#128465;</div>
+    <div class="label">
+      <span class="name">Cleanup Service</span>
+      <span class="sub">Hourly data retention</span>
+    </div>
+  </div>
+
+  <!-- Session Manager -->
+  <div class="box theme-service" style="top: 280px; left: 20px; width: 100px; padding: 10px 12px;">
+    <div class="icon" style="width: 28px; height: 28px; font-size: 14px;">&#128197;</div>
+    <div class="label">
+      <span class="name" style="font-size: 12px;">Sessions</span>
+      <span class="sub">00:00 UTC</span>
+    </div>
+  </div>
+
+  <!-- Railway -->
+  <div class="box theme-deploy" style="top: 770px; left: 50px; width: 170px;">
+    <div class="icon">&#9729;</div>
+    <div class="label">
+      <span class="name">Railway</span>
+      <span class="sub">Docker deploy + DB</span>
+    </div>
+  </div>
+
+  <!-- Token Masker -->
+  <div class="box theme-handler" style="top: 680px; left: 50px; width: 170px;">
+    <div class="icon">&#128737;</div>
+    <div class="label">
+      <span class="name">Token Masker</span>
+      <span class="sub">Secure logging</span>
+    </div>
+  </div>
+
+
+  <!-- ===== SVG ARROWS ===== -->
+  <svg class="arrows" viewBox="0 0 1200 820">
+    <defs>
+      <marker id="arrowGray" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+        <polygon points="0 0, 8 3, 0 6" class="arrow-head"/>
+      </marker>
+      <marker id="arrowBlue" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+        <polygon points="0 0, 8 3, 0 6" class="arrow-head blue"/>
+      </marker>
+      <marker id="arrowGreen" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+        <polygon points="0 0, 8 3, 0 6" class="arrow-head green"/>
+      </marker>
+      <marker id="arrowRed" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+        <polygon points="0 0, 8 3, 0 6" class="arrow-head red"/>
+      </marker>
+      <marker id="arrowOrange" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+        <polygon points="0 0, 8 3, 0 6" class="arrow-head orange"/>
+      </marker>
+    </defs>
+
+    <!-- Admin → Telegram Bot -->
+    <line x1="145" y1="63" x2="218" y2="63" class="arrow-line blue" marker-end="url(#arrowBlue)"/>
+
+    <!-- Telegram Bot → Command Handlers -->
+    <line x1="400" y1="63" x2="468" y2="63" class="arrow-line" marker-end="url(#arrowGray)"/>
+
+    <!-- Command Handlers → Price Monitor (down) -->
+    <path d="M 560 80 L 560 120 L 480 120 L 480 158" class="arrow-line" marker-end="url(#arrowGray)"/>
+
+    <!-- APScheduler → Price Monitor -->
+    <line x1="332" y1="183" x2="378" y2="183" class="arrow-line orange" marker-end="url(#arrowOrange)"/>
+
+    <!-- Price Monitor → Bybit API -->
+    <line x1="582" y1="183" x2="838" y2="183" class="arrow-line green" marker-end="url(#arrowGreen)"/>
+
+    <!-- Price Monitor → Volume Filter (down) -->
+    <line x1="480" y1="200" x2="480" y2="278" class="arrow-line" marker-end="url(#arrowGray)"/>
+
+    <!-- Price Monitor → Store Snapshots (down-right) -->
+    <path d="M 540 200 L 540 240 L 755 240 L 755 278" class="arrow-line" marker-end="url(#arrowGray)"/>
+
+    <!-- Volume Filter → Alert Router (down) -->
+    <line x1="515" y1="318" x2="515" y2="388" class="arrow-line" marker-end="url(#arrowGray)"/>
+
+    <!-- Alert Router → Percentage Engine (down-left) -->
+    <path d="M 470 428 L 370 460 L 340 498" class="arrow-line red" marker-end="url(#arrowRed)"/>
+
+    <!-- Alert Router → Milestone Engine (down-right) -->
+    <path d="M 560 428 L 680 460 L 740 498" class="arrow-line red" marker-end="url(#arrowRed)"/>
+
+    <!-- Milestone Engine → Boundary Detection (down) -->
+    <line x1="760" y1="538" x2="740" y2="588" class="arrow-line" marker-end="url(#arrowGray)"/>
+
+    <!-- Milestone Engine → 241 Mode -->
+    <path d="M 860 538 L 940 560 L 960 588" class="arrow-line dashed" marker-end="url(#arrowGray)"/>
+
+    <!-- Percentage Engine → Cooldown (down) -->
+    <path d="M 340 538 L 380 620 L 440 678" class="arrow-line" marker-end="url(#arrowGray)"/>
+
+    <!-- Milestone Engine → Cooldown (down) -->
+    <path d="M 740 538 L 660 620 L 580 678" class="arrow-line" marker-end="url(#arrowGray)"/>
+
+    <!-- Cooldown → Telegram Channel (down) -->
+    <line x1="520" y1="718" x2="520" y2="768" class="arrow-line blue" marker-end="url(#arrowBlue)"/>
+
+    <!-- PostgreSQL ↔ Price Monitor (connections) -->
+    <path d="M 135 388 L 135 220 L 168 195" class="arrow-line dashed"/>
+    <!-- PostgreSQL ↔ Alert Engines -->
+    <line x1="135" y1="420" x2="135" y2="510" class="arrow-line dashed"/>
+    <line x1="175" y1="520" x2="198" y2="520" class="arrow-line dashed" marker-end="url(#arrowGray)"/>
+
+    <!-- APScheduler → Cleanup -->
+    <path d="M 250 198 L 220 240 L 220 278" class="arrow-line dashed orange" marker-end="url(#arrowOrange)"/>
+
+    <!-- APScheduler → Sessions -->
+    <path d="M 200 198 L 80 240 L 65 278" class="arrow-line dashed orange" marker-end="url(#arrowOrange)"/>
+
+    <!-- Cleanup → PostgreSQL -->
+    <line x1="180" y1="318" x2="150" y2="388" class="arrow-line dashed" marker-end="url(#arrowGray)"/>
+
+    <!-- Railway → PostgreSQL -->
+    <line x1="135" y1="768" x2="135" y2="730" class="arrow-line dashed"/>
+    <!-- Token Masker stands alone -->
+  </svg>
+
+  <!-- Legend -->
+  <div class="legend">
+    <div class="legend-title">Data Flow</div>
+    <div class="legend-item"><div class="legend-line blue-solid"></div> Telegram I/O</div>
+    <div class="legend-item"><div class="legend-line green-solid"></div> API Fetch (30s)</div>
+    <div class="legend-item"><div class="legend-line solid"></div> Internal Flow</div>
+    <div class="legend-item"><div class="legend-line dashed"></div> DB / Scheduled</div>
+  </div>
+
+</div>
+
+<!-- ===== DETAILED BREAKDOWN BELOW ===== -->
+<div style="max-width: 1200px; margin: 60px auto 0; border-top: 2px solid #e5e7eb; padding-top: 40px;">
+
+  <h2 style="font-size: 22px; margin-bottom: 24px;">Component Details</h2>
+
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
+
+    <!-- Card: Scan Loop -->
+    <div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 12px; padding: 20px;">
+      <h3 style="font-size: 16px; margin-bottom: 12px;">&#128200; Price Monitor (Core Loop)</h3>
+      <ul style="font-size: 13px; line-height: 1.8; padding-left: 18px; color: #374151;">
+        <li>Runs every <strong>30 seconds</strong> via APScheduler</li>
+        <li>Fetches all tickers from Bybit <code>/v5/market/tickers</code></li>
+        <li>Filters pairs by 24h volume threshold ($25M default)</li>
+        <li>Stores each price in <code>price_snapshots</code> table</li>
+        <li>Routes BTC/ETH → Milestone Engine, others → Percentage Engine</li>
+      </ul>
+    </div>
+
+    <!-- Card: Milestone Engine -->
+    <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 12px; padding: 20px;">
+      <h3 style="font-size: 16px; margin-bottom: 12px;">&#127942; Milestone Engine (BTC/ETH)</h3>
+      <ul style="font-size: 13px; line-height: 1.8; padding-left: 18px; color: #374151;">
+        <li>BTC: $1,000 steps / ETH: $100 steps</li>
+        <li><strong>Boundary Crossing</strong>: Exact detection between consecutive scan prices</li>
+        <li><strong>241 Trend Filter</strong>: Uses 1h lookback (not 24h) to catch dump reversals</li>
+        <li><strong>Direction-Agnostic Lock</strong>: Same milestone locked both ways for /time period</li>
+        <li>Multi-level skips: Fire ONE alert, cooldown ALL skipped</li>
+      </ul>
+    </div>
+
+    <!-- Card: Percentage Engine -->
+    <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 12px; padding: 20px;">
+      <h3 style="font-size: 16px; margin-bottom: 12px;">&#128314; Percentage Engine (All Coins)</h3>
+      <ul style="font-size: 13px; line-height: 1.8; padding-left: 18px; color: #374151;">
+        <li>Default thresholds: [10, 30, 60, 80, 100]%</li>
+        <li>Custom per-symbol: <code>/sol 5,10,15</code> or <code>/sol 2</code> (incremental)</li>
+        <li>Model 1: Session-based (00:00 UTC reset)</li>
+        <li>Model 2: Rolling 24h window (default)</li>
+        <li>Fires only HIGHEST crossed threshold, 24h cooldown</li>
+      </ul>
+    </div>
+
+    <!-- Card: Database -->
+    <div style="background: #fdf2f8; border: 1px solid #fbcfe8; border-radius: 12px; padding: 20px;">
+      <h3 style="font-size: 16px; margin-bottom: 12px;">&#128451; PostgreSQL (9 Tables)</h3>
+      <ul style="font-size: 13px; line-height: 1.8; padding-left: 18px; color: #374151;">
+        <li><code>price_snapshots</code> — Rolling 24h price cache (48h retention)</li>
+        <li><code>alert_history</code> — Percentage alert dedup (24h cooldown)</li>
+        <li><code>milestone_history</code> — Milestone cooldown (direction-agnostic)</li>
+        <li><code>milestone_last_price</code> — Real-time boundary tracking</li>
+        <li><code>bot_config</code> — All settings (key-value)</li>
+        <li><code>session_prices</code> — Model 1 daily baselines</li>
+        <li><code>custom_thresholds</code> — Per-symbol overrides</li>
+        <li><code>scanner_logs</code> — Audit trail (7d retention)</li>
+      </ul>
+    </div>
+
+    <!-- Card: Admin Commands -->
+    <div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 12px; padding: 20px;">
+      <h3 style="font-size: 16px; margin-bottom: 12px;">&#9881; Admin Commands</h3>
+      <div style="font-size: 13px; line-height: 1.8; color: #374151; columns: 2; column-gap: 16px;">
+        <code>/mode</code> futures|spot<br>
+        <code>/model1</code> / <code>/model2</code><br>
+        <code>/volume</code> min turnover<br>
+        <code>/pause</code> / <code>/resume</code><br>
+        <code>/percentage</code> / <code>/milestone</code><br>
+        <code>/241</code> on|off (trend filter)<br>
+        <code>/time</code> lock minutes<br>
+        <code>/btc</code> <code>/eth</code> <code>/sol</code> ... custom %<br>
+        <code>/cooldown</code> milestone CD<br>
+        <code>/status</code> / <code>/stats</code><br>
+      </div>
+    </div>
+
+    <!-- Card: Deployment -->
+    <div style="background: #f5f3ff; border: 1px solid #ddd6fe; border-radius: 12px; padding: 20px;">
+      <h3 style="font-size: 16px; margin-bottom: 12px;">&#9729; Deployment (Railway)</h3>
+      <ul style="font-size: 13px; line-height: 1.8; padding-left: 18px; color: #374151;">
+        <li>Docker container: <code>python:3.11-slim</code></li>
+        <li>Entry: <code>python -m bot.main</code></li>
+        <li>PostgreSQL: Railway-managed instance</li>
+        <li>Env vars: BOT_TOKEN, CHANNEL_ID, DATABASE_URL, ADMIN_IDS</li>
+        <li>Auto-restart on crash, health check via Bybit ping</li>
+        <li>Non-root user (botuser) for security</li>
+      </ul>
+    </div>
+
+  </div>
+
+  <!-- Data Flow Summary -->
+  <div style="margin-top: 32px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 24px;">
+    <h3 style="font-size: 16px; margin-bottom: 12px;">&#128260; End-to-End Data Flow</h3>
+    <div style="font-size: 14px; line-height: 2; color: #374151; font-family: 'Courier New', monospace;">
+      <span style="color: #7c3aed;">Bybit API</span>
+      <span style="color: #9ca3af;"> &rarr; </span>
+      <span style="color: #059669;">fetch_tickers()</span>
+      <span style="color: #9ca3af;"> &rarr; </span>
+      <span style="color: #059669;">volume_filter</span>
+      <span style="color: #9ca3af;"> &rarr; </span>
+      <span style="color: #db2777;">store_snapshot()</span>
+      <span style="color: #9ca3af;"> &rarr; </span>
+      <span style="color: #ea580c;">route(BTC/ETH vs all)</span>
+      <span style="color: #9ca3af;"> &rarr; </span>
+      <span style="color: #dc2626;">detect_alert()</span>
+      <span style="color: #9ca3af;"> &rarr; </span>
+      <span style="color: #d97706;">check_cooldown()</span>
+      <span style="color: #9ca3af;"> &rarr; </span>
+      <span style="color: #2563eb;">send_telegram()</span>
+      <span style="color: #9ca3af;"> &rarr; </span>
+      <span style="color: #db2777;">record_alert()</span>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>

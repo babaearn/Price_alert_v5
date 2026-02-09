@@ -11,8 +11,7 @@ from bot.config import (
     DEFAULT_MIN_VOLUME_FUTURES, DEFAULT_MIN_VOLUME_SPOT,
     DEFAULT_BTC_ETH_ALERT_MODE, DEFAULT_BTC_PERCENTAGE, DEFAULT_ETH_PERCENTAGE,
     DEFAULT_BTC_MILESTONE, DEFAULT_ETH_MILESTONE, DEFAULT_MILESTONE_COOLDOWN,
-    DEFAULT_SHORT_TERM_TREND, DEFAULT_SHORT_TERM_LOOKBACK,
-    DEFAULT_MILESTONE_LOCK
+    DEFAULT_SHORT_TERM_TREND, DEFAULT_SHORT_TERM_LOOKBACK
 )
 from bot.utils.logger import logger
 from bot.utils.token_masker import mask_database_url, mask_error_message
@@ -913,8 +912,8 @@ def record_milestone_alert(symbol: str, milestone: float, direction: str,
                            price: float, current_time: int):
     """Record milestone alert in history for deduplication."""
     try:
-        # Use milestone_lock (/time command) for direction-agnostic cooldown
-        lock_minutes = int(get_bot_setting('milestone_lock') or DEFAULT_MILESTONE_LOCK)
+        # Use milestone_cooldown (/cooldown command) for direction-agnostic 24h cooldown
+        lock_minutes = int(get_bot_setting('milestone_cooldown') or DEFAULT_MILESTONE_COOLDOWN)
         expires_at = current_time + (lock_minutes * 60)  # Convert minutes to seconds
 
         conn, cursor = get_connection()
