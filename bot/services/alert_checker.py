@@ -351,6 +351,11 @@ async def check_and_send_alerts(
             if success:
                 # Record alert for THIS threshold
                 record_alert(symbol, threshold, current_time, current_price, pct_change)
+                # Record ALL lower crossed thresholds in cooldown too
+                # Prevents them from firing on subsequent scans
+                for lower_t in sorted_thresholds:
+                    if abs(lower_t) < abs(threshold):
+                        record_alert(symbol, lower_t, current_time, current_price, pct_change)
                 logger.info(f"🚨 Alert fired: {symbol} {pct_change:+.2f}% (threshold: {threshold:+d}%)")
                 return True, 1  # Return immediately - only ONE alert per scan
 
