@@ -152,7 +152,7 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     eth_pct = settings.get('eth_percentage', '2')
     btc_milestone = settings.get('btc_milestone', '1000')
     eth_milestone = settings.get('eth_milestone', '100')
-    lock_time = settings.get('milestone_lock', '30')
+    cooldown_time = settings.get('milestone_cooldown', '1440')
 
     # 241 mode
     short_term = settings.get('short_term_trend', 'true')
@@ -187,7 +187,7 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if btc_eth_mode == 'milestone':
         message += f"""▸ BTC: Every ${btc_milestone}
 ▸ ETH: Every ${eth_milestone}
-▸ Lock: {lock_time} min
+▸ Cooldown: {cooldown_time} min
 """
     else:
         message += f"""▸ BTC: Every ±{btc_pct}%
