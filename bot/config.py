@@ -48,7 +48,7 @@ DEFAULT_SCAN_INTERVAL = 30  # seconds
 # BTC/ETH Alert Mode (percentage or milestone)
 # 'percentage' = alert every X% (e.g., 3% for BTC, 2% for ETH)
 # 'milestone' = alert at price milestones (e.g., every $1000 for BTC, every $100 for ETH)
-DEFAULT_BTC_ETH_ALERT_MODE = 'percentage'
+DEFAULT_BTC_ETH_ALERT_MODE = 'milestone'
 DEFAULT_BTC_PERCENTAGE = 3  # Alert every ±3%
 DEFAULT_ETH_PERCENTAGE = 2  # Alert every ±2%
 DEFAULT_BTC_MILESTONE = 1000  # Alert every $1000 (90000, 91000, 92000)
