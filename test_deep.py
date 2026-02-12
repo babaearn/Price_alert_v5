@@ -26,8 +26,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 mock_psycopg2 = MagicMock()
 mock_psycopg2.extras = MagicMock()
 mock_psycopg2.extras.RealDictCursor = MagicMock()
+mock_psycopg2.extensions = MagicMock()
+mock_psycopg2.extensions.TRANSACTION_STATUS_INERROR = 3
 sys.modules['psycopg2'] = mock_psycopg2
 sys.modules['psycopg2.extras'] = mock_psycopg2.extras
+sys.modules['psycopg2.extensions'] = mock_psycopg2.extensions
 
 # Mock telegram (python-telegram-bot - not installed in test env)
 mock_telegram = MagicMock()
