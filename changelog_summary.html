@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Price Alert Bot v5 - Fix Summary</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: #0f172a;
+    color: #e2e8f0;
+    padding: 40px 24px;
+  }
+  .container { max-width: 960px; margin: 0 auto; }
+  h1 { font-size: 28px; font-weight: 700; margin-bottom: 8px; color: #f8fafc; }
+  .subtitle { font-size: 14px; color: #94a3b8; margin-bottom: 40px; }
+
+  /* Timeline */
+  .timeline { position: relative; padding-left: 40px; }
+  .timeline::before {
+    content: '';
+    position: absolute;
+    left: 15px; top: 0; bottom: 0;
+    width: 2px;
+    background: linear-gradient(to bottom, #3b82f6, #8b5cf6, #ec4899, #f59e0b);
+    border-radius: 2px;
+  }
+  .fix-item {
+    position: relative;
+    margin-bottom: 32px;
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 12px;
+    padding: 20px 24px;
+  }
+  .fix-item::before {
+    content: '';
+    position: absolute;
+    left: -33px; top: 24px;
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    border: 2px solid #3b82f6;
+    background: #0f172a;
+  }
+  .fix-item.bug1::before { border-color: #3b82f6; }
+  .fix-item.bug2::before { border-color: #8b5cf6; }
+  .fix-item.bug3::before { border-color: #ec4899; }
+  .fix-item.bug4::before { border-color: #f59e0b; }
+  .fix-item.bug5::before { border-color: #10b981; }
+  .fix-item.bug6::before { border-color: #06b6d4; }
+
+  .fix-number {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    margin-bottom: 8px;
+  }
+  .bug1 .fix-number { background: #1e3a5f; color: #60a5fa; }
+  .bug2 .fix-number { background: #2e1065; color: #a78bfa; }
+  .bug3 .fix-number { background: #4a0d2e; color: #f472b6; }
+  .bug4 .fix-number { background: #451a03; color: #fbbf24; }
+  .bug5 .fix-number { background: #022c22; color: #34d399; }
+  .bug6 .fix-number { background: #083344; color: #22d3ee; }
+
+  .fix-title { font-size: 18px; font-weight: 600; margin-bottom: 12px; color: #f1f5f9; }
+
+  /* Before/After boxes */
+  .comparison { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+  .before, .after {
+    padding: 12px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    line-height: 1.6;
+  }
+  .before {
+    background: #1c1917;
+    border: 1px solid #dc2626;
+  }
+  .after {
+    background: #052e16;
+    border: 1px solid #16a34a;
+  }
+  .label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 6px;
+  }
+  .before .label { color: #ef4444; }
+  .after .label { color: #22c55e; }
+  .code { font-family: 'Courier New', monospace; font-size: 12px; color: #cbd5e1; }
+
+  /* Diagram section */
+  .flow-section {
+    margin-top: 48px;
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 12px;
+    padding: 28px;
+  }
+  .flow-title { font-size: 20px; font-weight: 600; margin-bottom: 20px; color: #f1f5f9; }
+
+  /* Flow diagram using CSS */
+  .flow { display: flex; flex-direction: column; gap: 12px; align-items: center; }
+  .flow-box {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    max-width: 100%;
+    text-align: center;
+  }
+  .flow-arrow {
+    font-size: 18px;
+    color: #64748b;
+  }
+  .flow-split {
+    display: flex;
+    gap: 24px;
+    align-items: flex-start;
+    width: 100%;
+    justify-content: center;
+  }
+  .flow-branch {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+    max-width: 380px;
+  }
+  .flow-branch-label {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    padding: 4px 12px;
+    border-radius: 4px;
+  }
+
+  .bg-blue { background: #1e3a5f; color: #93c5fd; }
+  .bg-green { background: #052e16; color: #86efac; border: 1px solid #16a34a; }
+  .bg-purple { background: #2e1065; color: #c4b5fd; }
+  .bg-orange { background: #431407; color: #fdba74; }
+  .bg-red { background: #450a0a; color: #fca5a5; }
+  .bg-cyan { background: #083344; color: #67e8f9; }
+  .bg-gray { background: #1e293b; color: #94a3b8; border: 1px solid #475569; }
+  .bg-emerald { background: #022c22; color: #6ee7b7; }
+
+  /* Test results */
+  .test-section {
+    margin-top: 48px;
+    background: #052e16;
+    border: 1px solid #16a34a;
+    border-radius: 12px;
+    padding: 24px;
+  }
+  .test-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px; }
+  .test-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    background: rgba(255,255,255,0.05);
+    border-radius: 6px;
+    font-size: 13px;
+  }
+  .test-pass { color: #22c55e; font-weight: 600; }
+
+  /* Files changed */
+  .files-section { margin-top: 32px; }
+  .file-tag {
+    display: inline-block;
+    padding: 4px 10px;
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    font-size: 12px;
+    font-family: monospace;
+    margin: 3px;
+    color: #94a3b8;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>Price Alert Bot v5 - All Fixes Summary</h1>
+<p class="subtitle">Branch: claude/fix-sensor-dump-issue-CZM3v | 8 commits | 6 bugs fixed</p>
+
+<!-- ===== TIMELINE ===== -->
+<div class="timeline">
+
+  <!-- Fix 1: 241 Mode -->
+  <div class="fix-item bug1">
+    <div class="fix-number">Fix 1 - 241 Mode</div>
+    <div class="fix-title">False "BREAKS" alerts during dumps</div>
+    <div class="comparison">
+      <div class="before">
+        <div class="label">Problem</div>
+        BTC dumps $71.7k to $64.4k<br>
+        24h ago was $65k, so 24h change = +4.8%<br>
+        Bot sees "bullish" and sends<br>
+        <strong>"BREAKS $68,000"</strong> on dead cat bounce
+      </div>
+      <div class="after">
+        <div class="label">Fix</div>
+        241 mode uses <strong>1h lookback</strong> instead of 24h<br>
+        1h ago price was $71k, change = -4.1%<br>
+        Trend is bearish, BREAKS filtered out<br>
+        Toggle: <code>/241 on|off</code>
+      </div>
+    </div>
+  </div>
+
+  <!-- Fix 2: Floor Division -->
+  <div class="fix-item bug2">
+    <div class="fix-number">Fix 2 - Boundary Crossing</div>
+    <div class="fix-title">Wrong milestone levels reported</div>
+    <div class="comparison">
+      <div class="before">
+        <div class="label">Problem</div>
+        ETH at $2,095 &rarr; "DROPS TO <strong>$2,000</strong>"<br>
+        BTC at $69,984 &rarr; "DROPS TO <strong>$69,000</strong>"<br>
+        <br>
+        Floor division: <code>69984 // 1000 * 1000 = 69000</code>
+      </div>
+      <div class="after">
+        <div class="label">Fix</div>
+        Exact boundary crossing between scans<br>
+        $70,050 &rarr; $69,984 crosses <strong>$70,000</strong><br>
+        $2,150 &rarr; $2,095 crosses <strong>$2,100</strong><br>
+        No floor division anywhere
+      </div>
+    </div>
+  </div>
+
+  <!-- Fix 3: Contradicting alerts -->
+  <div class="fix-item bug3">
+    <div class="fix-number">Fix 3 - Direction-Agnostic Cooldown</div>
+    <div class="fix-title">Contradicting BREAKS then DROPS on same level</div>
+    <div class="comparison">
+      <div class="before">
+        <div class="label">Problem</div>
+        5:20 PM: "BREAKS $71,000"<br>
+        6:20 PM: "DROPS TO $71,000"<br>
+        <br>
+        Cooldown tracked direction separately
+      </div>
+      <div class="after">
+        <div class="label">Fix</div>
+        Once $71k fires in ANY direction,<br>
+        locked for <strong>24 hours</strong> both ways<br>
+        <br>
+        <code>/cooldown</code> to adjust (default 1440 min)
+      </div>
+    </div>
+  </div>
+
+  <!-- Fix 4: Duplicate milestone (30min lock) -->
+  <div class="fix-item bug4">
+    <div class="fix-number">Fix 4 - 24h Cooldown</div>
+    <div class="fix-title">Duplicate "DROPS TO $70,000" 38 minutes apart</div>
+    <div class="comparison">
+      <div class="before">
+        <div class="label">Problem</div>
+        2:01 PM: "DROPS TO $70,000"<br>
+        2:39 PM: "DROPS TO $70,000" again<br>
+        <br>
+        Lock was only <strong>30 minutes</strong> (milestone_lock)
+      </div>
+      <div class="after">
+        <div class="label">Fix</div>
+        Uses <code>milestone_cooldown</code> = <strong>24 hours</strong><br>
+        Once $70k fires, locked until next day<br>
+        <br>
+        Removed dead <code>/time</code> command
+      </div>
+    </div>
+  </div>
+
+  <!-- Fix 5: Duplicate percentage alerts -->
+  <div class="fix-item bug5">
+    <div class="fix-number">Fix 5 - Lower Threshold Cooldown</div>
+    <div class="fix-title">GPS pumps +39% then +37% in same minute</div>
+    <div class="comparison">
+      <div class="before">
+        <div class="label">Problem</div>
+        Scan 1: GPS +39% &rarr; fires 30% threshold<br>
+        Scan 2: GPS +37% &rarr; 30% blocked, but<br>
+        <strong>10% still open</strong> &rarr; fires again
+      </div>
+      <div class="after">
+        <div class="label">Fix</div>
+        When 30% fires, also record<br>
+        <strong>10% in cooldown</strong><br>
+        All lower thresholds blocked too
+      </div>
+    </div>
+  </div>
+
+  <!-- Fix 6: BTC/ETH percentage -->
+  <div class="fix-item bug6">
+    <div class="fix-number">Fix 6 - BTC/ETH Routing</div>
+    <div class="fix-title">BTC/ETH getting both milestone AND percentage alerts</div>
+    <div class="comparison">
+      <div class="before">
+        <div class="label">Problem</div>
+        "BITCOIN DROPS TO $67,000" (milestone)<br>
+        "BTC dumps -3%" (percentage)<br>
+        Default mode was <code>'percentage'</code><br>
+        Broad match: <code>'BTC' in symbol</code>
+      </div>
+      <div class="after">
+        <div class="label">Fix</div>
+        Default changed to <code>'milestone'</code><br>
+        Exact match: <code>BTCUSDT</code> / <code>ETHUSDT</code> only<br>
+        BTCPERP, BTCDOMUSDT &rarr; percentage path<br>
+        BTC/ETH never get % alerts in milestone mode
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ===== FLOW DIAGRAM ===== -->
+<div class="flow-section">
+  <div class="flow-title">Alert Flow After All Fixes</div>
+  <div class="flow">
+    <div class="flow-box bg-blue">Bybit API &rarr; fetch_tickers() every 30s</div>
+    <div class="flow-arrow">&darr;</div>
+    <div class="flow-box bg-gray">Volume Filter (475+ pairs &gt; $25M)</div>
+    <div class="flow-arrow">&darr;</div>
+    <div class="flow-box bg-gray">Store price_snapshot in PostgreSQL</div>
+    <div class="flow-arrow">&darr;</div>
+    <div class="flow-box bg-orange">Route: Is this BTCUSDT or ETHUSDT?</div>
+    <div class="flow-arrow">&darr;</div>
+
+    <div class="flow-split">
+      <!-- Left: Milestone -->
+      <div class="flow-branch">
+        <div class="flow-branch-label bg-purple">YES &rarr; Milestone Path</div>
+        <div class="flow-box bg-purple" style="font-size:12px;">
+          Boundary Crossing Detection<br>
+          (exact $1k/$100 boundaries between scans)
+        </div>
+        <div class="flow-arrow">&darr;</div>
+        <div class="flow-box bg-cyan" style="font-size:12px;">
+          241 Trend Filter<br>
+          (1h lookback, not 24h)
+        </div>
+        <div class="flow-arrow">&darr;</div>
+        <div class="flow-box bg-red" style="font-size:12px;">
+          24h Direction-Agnostic Cooldown<br>
+          (same milestone locked both ways)
+        </div>
+        <div class="flow-arrow">&darr;</div>
+        <div class="flow-box bg-emerald" style="font-size:12px;">
+          "BITCOIN BREAKS $71,000"<br>
+          or "ETHEREUM DROPS TO $2,100"
+        </div>
+      </div>
+
+      <!-- Right: Percentage -->
+      <div class="flow-branch">
+        <div class="flow-branch-label bg-orange">NO &rarr; Percentage Path</div>
+        <div class="flow-box bg-orange" style="font-size:12px;">
+          Calculate % change<br>
+          (Model 1: session / Model 2: rolling 24h)
+        </div>
+        <div class="flow-arrow">&darr;</div>
+        <div class="flow-box bg-gray" style="font-size:12px;">
+          Get crossed thresholds<br>
+          [10, 30, 60, 80, 100, ...]
+        </div>
+        <div class="flow-arrow">&darr;</div>
+        <div class="flow-box bg-red" style="font-size:12px;">
+          Fire HIGHEST only<br>
+          Record all lower in cooldown
+        </div>
+        <div class="flow-arrow">&darr;</div>
+        <div class="flow-box bg-emerald" style="font-size:12px;">
+          "SOL pumps +39%"<br>
+          (one alert, 24h cooldown per threshold)
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== TEST RESULTS ===== -->
+<div class="test-section">
+  <div class="flow-title" style="color: #22c55e;">Test Results: 68/68 Passed</div>
+  <div class="test-grid">
+    <div class="test-item"><span>Boundary Crossing Detection</span><span class="test-pass">15/15</span></div>
+    <div class="test-item"><span>Percentage Thresholds</span><span class="test-pass">10/10</span></div>
+    <div class="test-item"><span>Highest Threshold Logic</span><span class="test-pass">3/3</span></div>
+    <div class="test-item"><span>Alert Routing (BTC/ETH filter)</span><span class="test-pass">8/8</span></div>
+    <div class="test-item"><span>Config Defaults</span><span class="test-pass">10/10</span></div>
+    <div class="test-item"><span>Cooldown Direction-Agnostic</span><span class="test-pass">3/3</span></div>
+    <div class="test-item"><span>Edge Cases & Helpers</span><span class="test-pass">19/19</span></div>
+  </div>
+</div>
+
+<!-- ===== FILES CHANGED ===== -->
+<div class="files-section" style="margin-top: 32px;">
+  <div class="flow-title" style="font-size: 16px;">Files Modified</div>
+  <div style="margin-top: 12px;">
+    <span class="file-tag">bot/config.py</span>
+    <span class="file-tag">bot/services/database.py</span>
+    <span class="file-tag">bot/services/alert_checker.py</span>
+    <span class="file-tag">bot/services/price_monitor.py</span>
+    <span class="file-tag">bot/handlers/admin_commands.py</span>
+    <span class="file-tag">bot/handlers/user_commands.py</span>
+    <span class="file-tag">bot/main.py</span>
+  </div>
+</div>
+
+<!-- Admin Commands Reference -->
+<div class="flow-section" style="margin-top: 24px;">
+  <div class="flow-title" style="font-size: 16px;">Active Admin Commands</div>
+  <div style="display: grid; grid-template-columns: 120px 1fr; gap: 8px 16px; font-size: 13px; margin-top: 12px;">
+    <code style="color: #60a5fa;">/241 on|off</code><span>Toggle 1h trend filter (default: ON)</span>
+    <code style="color: #60a5fa;">/cooldown N</code><span>Set milestone lock in minutes (default: 1440 = 24h)</span>
+    <code style="color: #60a5fa;">/milestone</code><span>Switch BTC/ETH to milestone mode</span>
+    <code style="color: #60a5fa;">/percentage</code><span>Switch BTC/ETH to percentage mode</span>
+    <code style="color: #60a5fa;">/mode</code><span>Switch futures/spot</span>
+    <code style="color: #60a5fa;">/pause /resume</code><span>Pause/resume scanner</span>
+    <code style="color: #60a5fa;">/btc /eth /sol</code><span>Custom thresholds per coin</span>
+    <code style="color: #60a5fa;">/status</code><span>Show current settings</span>
+  </div>
+</div>
+
+</div>
+</body>
+</html>

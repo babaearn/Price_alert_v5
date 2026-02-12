@@ -1,5 +1,6 @@
 """PostgreSQL database operations"""
 import psycopg2
+import psycopg2.extensions
 from psycopg2.extras import RealDictCursor
 from datetime import datetime, timedelta
 import time
@@ -21,20 +22,76 @@ _conn = None
 _cursor = None
 
 
+def _safe_close():
+    """Safely close the database connection without raising exceptions."""
+    global _conn, _cursor
+    try:
+        if _cursor:
+            _cursor.close()
+    except Exception:
+        pass
+    try:
+        if _conn and not _conn.closed:
+            _conn.close()
+    except Exception:
+        pass
+    _conn = None
+    _cursor = None
+
+
+def _safe_rollback():
+    """Rollback the current transaction to clear error state."""
+    global _conn
+    try:
+        if _conn and not _conn.closed:
+            _conn.rollback()
+    except Exception:
+        pass
+
+
 def get_connection():
-    """Get database connection, creating if needed"""
+    """Get database connection, auto-recovering from errors and stale connections.
+
+    Handles three failure modes:
+    1. Connection in INERROR state (failed transaction) → rollback to recover
+    2. Stale/dead connection (server went away) → reconnect
+    3. No connection yet → create new one with timeouts and keepalives
+    """
     global _conn, _cursor
 
-    if _conn is None or _conn.closed:
+    if _conn is not None and not _conn.closed:
         try:
-            _conn = psycopg2.connect(DATABASE_URL)
-            _conn.autocommit = False
-            _cursor = _conn.cursor(cursor_factory=RealDictCursor)
-            logger.info(f"Database connection established: {mask_database_url(DATABASE_URL)}")
+            # Check if transaction is in error state (e.g., after a failed query)
+            # This is the #1 cause of "bot stops responding" — once in error state,
+            # ALL queries fail until rollback() is called
+            status = _conn.get_transaction_status()
+            if status == psycopg2.extensions.TRANSACTION_STATUS_INERROR:
+                logger.warning("DB transaction in error state — recovering with rollback")
+                _conn.rollback()
+            return _conn, _cursor
         except Exception as e:
-            masked_error = mask_error_message(str(e))
-            logger.error(f"Failed to connect to database: {masked_error}")
-            raise
+            # Connection appears open but is actually broken (stale/dead)
+            logger.warning(f"DB connection unhealthy, reconnecting: {e}")
+            _safe_close()
+
+    # Create new connection with timeouts and keepalives
+    try:
+        _conn = psycopg2.connect(
+            DATABASE_URL,
+            connect_timeout=10,          # 10s max to establish connection
+            keepalives=1,                 # Enable TCP keepalive
+            keepalives_idle=30,           # Send keepalive after 30s idle
+            keepalives_interval=10,       # Retry keepalive every 10s
+            keepalives_count=5,           # Give up after 5 failed keepalives
+            options='-c statement_timeout=15000'  # 15s max per query
+        )
+        _conn.autocommit = False
+        _cursor = _conn.cursor(cursor_factory=RealDictCursor)
+        logger.info(f"Database connection established: {mask_database_url(DATABASE_URL)}")
+    except Exception as e:
+        masked_error = mask_error_message(str(e))
+        logger.error(f"Failed to connect to database: {masked_error}")
+        raise
 
     return _conn, _cursor
 
@@ -229,6 +286,7 @@ def get_bot_setting(key: str) -> Optional[str]:
         return result['value'] if result else None
     except Exception as e:
         logger.error(f"Error getting bot setting {key}: {e}")
+        _safe_rollback()
         return None
 
 
@@ -260,6 +318,7 @@ def get_all_settings() -> Dict[str, str]:
         return {row['key']: row['value'] for row in results}
     except Exception as e:
         logger.error(f"Error getting all settings: {e}")
+        _safe_rollback()
         return {}
 
 
@@ -314,6 +373,7 @@ def get_24h_ago_price(symbol: str, mode: str, current_timestamp: int) -> Optiona
 
     except Exception as e:
         logger.error(f"Error getting 24h ago price for {symbol}: {e}")
+        _safe_rollback()
         return None
 
 
@@ -361,6 +421,7 @@ def get_short_term_price(symbol: str, mode: str, current_timestamp: int,
 
     except Exception as e:
         logger.error(f"Error getting short-term price for {symbol}: {e}")
+        _safe_rollback()
         return None
 
 
@@ -385,6 +446,7 @@ def get_session_start_price(symbol: str, mode: str) -> Optional[float]:
 
     except Exception as e:
         logger.error(f"Error getting session start price for {symbol}: {e}")
+        _safe_rollback()
         return None
 
 
@@ -447,6 +509,7 @@ def can_fire_alert(symbol: str, threshold: int, current_time: int) -> bool:
 
     except Exception as e:
         logger.error(f"Error checking if alert can fire for {symbol}: {e}")
+        _safe_rollback()
         return True  # Allow alert on error to be safe
 
 
@@ -497,6 +560,7 @@ def get_recent_alerts(hours: int = 24) -> List[Dict]:
 
     except Exception as e:
         logger.error(f"Error getting recent alerts: {e}")
+        _safe_rollback()
         return []
 
 
@@ -535,6 +599,7 @@ def get_last_scan_log() -> Optional[Dict]:
 
     except Exception as e:
         logger.error(f"Error getting last scan log: {e}")
+        _safe_rollback()
         return None
 
 
@@ -567,6 +632,7 @@ def get_scan_stats(hours: int = 24) -> Dict:
 
     except Exception as e:
         logger.error(f"Error getting scan stats: {e}")
+        _safe_rollback()
         return {'total_scans': 0, 'total_alerts': 0, 'total_errors': 0,
                 'avg_duration_ms': 0, 'avg_pairs': 0}
 
@@ -613,6 +679,7 @@ def get_all_time_stats() -> Dict:
 
     except Exception as e:
         logger.error(f"Error getting all-time stats: {e}")
+        _safe_rollback()
         return {
             'total_alerts': 0,
             'days_active': 0,
@@ -760,6 +827,7 @@ def get_custom_thresholds(symbol: str) -> tuple:
 
     except Exception as e:
         logger.error(f"Error getting custom thresholds for {symbol}: {e}")
+        _safe_rollback()
         return (None, False)
 
 
@@ -858,6 +926,7 @@ def get_all_custom_thresholds() -> List[Dict]:
 
     except Exception as e:
         logger.error(f"Error getting all custom thresholds: {e}")
+        _safe_rollback()
         return []
 
 
@@ -898,6 +967,7 @@ def can_fire_milestone_alert(symbol: str, milestone: float, direction: str, curr
 
     except Exception as e:
         logger.error(f"Error checking milestone alert for {symbol}: {e}")
+        _safe_rollback()
         return True
 
 
@@ -952,6 +1022,7 @@ def get_milestone_last_price(symbol: str) -> Optional[float]:
 
     except Exception as e:
         logger.error(f"Error getting last price for {symbol}: {e}")
+        _safe_rollback()
         return None
 
 
@@ -1243,16 +1314,6 @@ def cleanup_expired_milestones() -> int:
 
 def close_connection():
     """Close database connection"""
-    global _conn, _cursor
-
-    try:
-        if _cursor:
-            _cursor.close()
-        if _conn:
-            _conn.close()
-        logger.info("Database connection closed")
-    except Exception as e:
-        logger.error(f"Error closing database connection: {e}")
-    finally:
-        _conn = None
-        _cursor = None
+    logger.info("Closing database connection")
+    _safe_close()
+    logger.info("Database connection closed")
