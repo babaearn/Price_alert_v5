@@ -1,7 +1,7 @@
 """PostgreSQL database operations"""
 import psycopg2
 import psycopg2.extensions
-from psycopg2.extras import RealDictCursor
+from psycopg2.extras import RealDictCursor, execute_values
 from datetime import datetime, timedelta
 import time
 from typing import Optional, Dict, Any, List
@@ -290,6 +290,27 @@ def get_bot_setting(key: str) -> Optional[str]:
         return None
 
 
+def get_bot_settings(keys: List[str]) -> Dict[str, Optional[str]]:
+    """Get multiple bot configuration values in a single query."""
+    if not keys:
+        return {}
+
+    try:
+        conn, cursor = get_connection()
+        cursor.execute("""
+            SELECT key, value
+            FROM bot_config
+            WHERE key = ANY(%s)
+        """, (keys,))
+        rows = cursor.fetchall()
+        values = {row['key']: row['value'] for row in rows}
+        return {key: values.get(key) for key in keys}
+    except Exception as e:
+        logger.error(f"Error getting bot settings {keys}: {e}")
+        _safe_rollback()
+        return {key: None for key in keys}
+
+
 def set_bot_setting(key: str, value: str, updated_by: str):
     """Update bot configuration"""
     try:
@@ -335,6 +356,38 @@ def store_price_snapshot(symbol: str, mode: str, price: float, timestamp: int):
     except Exception as e:
         logger.error(f"Error storing price snapshot for {symbol}: {e}")
         conn.rollback()
+
+
+def store_price_snapshots_batch(snapshots: List[tuple]) -> int:
+    """
+    Store multiple price snapshots in a single insert/commit.
+
+    Args:
+        snapshots: List of (symbol, mode, price, timestamp) tuples
+
+    Returns:
+        Number of inserted rows
+    """
+    if not snapshots:
+        return 0
+
+    try:
+        conn, cursor = get_connection()
+        execute_values(
+            cursor,
+            """
+            INSERT INTO price_snapshots (symbol, mode, price, timestamp)
+            VALUES %s
+            """,
+            snapshots,
+            page_size=1000
+        )
+        conn.commit()
+        return len(snapshots)
+    except Exception as e:
+        logger.error(f"Error storing batch price snapshots ({len(snapshots)} rows): {e}")
+        conn.rollback()
+        return 0
 
 
 def get_24h_ago_price(symbol: str, mode: str, current_timestamp: int) -> Optional[float]:
@@ -473,7 +526,13 @@ def set_session_start_price(symbol: str, mode: str, price: float, session_date=N
 
 
 # Alert history operations
-def can_fire_alert(symbol: str, threshold: int, current_time: int) -> bool:
+def can_fire_alert(
+    symbol: str,
+    threshold: int,
+    current_time: int,
+    mode: Optional[str] = None,
+    model: Optional[str] = None
+) -> bool:
     """
     Check if alert can fire (24h deduplication).
 
@@ -487,8 +546,8 @@ def can_fire_alert(symbol: str, threshold: int, current_time: int) -> bool:
     """
     try:
         conn, cursor = get_connection()
-        mode = get_bot_setting('mode')
-        model = get_bot_setting('model')
+        mode = mode or get_bot_setting('mode')
+        model = model or get_bot_setting('model')
 
         cursor.execute("""
             SELECT expires_at
@@ -513,12 +572,20 @@ def can_fire_alert(symbol: str, threshold: int, current_time: int) -> bool:
         return True  # Allow alert on error to be safe
 
 
-def record_alert(symbol: str, threshold: int, current_time: int, price: float, pct_change: float):
+def record_alert(
+    symbol: str,
+    threshold: int,
+    current_time: int,
+    price: float,
+    pct_change: float,
+    mode: Optional[str] = None,
+    model: Optional[str] = None
+):
     """Record alert in history for deduplication"""
     try:
         expires_at = current_time + 86400  # 24 hours from now
-        mode = get_bot_setting('mode')
-        model = get_bot_setting('model')
+        mode = mode or get_bot_setting('mode')
+        model = model or get_bot_setting('model')
 
         conn, cursor = get_connection()
 
@@ -539,6 +606,67 @@ def record_alert(symbol: str, threshold: int, current_time: int, price: float, p
     except Exception as e:
         logger.error(f"Error recording alert for {symbol}: {e}")
         conn.rollback()
+
+
+def record_alerts_batch(
+    symbol: str,
+    thresholds: List[int],
+    current_time: int,
+    price: float,
+    pct_change: float,
+    mode: Optional[str] = None,
+    model: Optional[str] = None
+) -> int:
+    """
+    Record multiple threshold alerts in one insert/commit.
+
+    Args:
+        symbol: Trading pair symbol
+        thresholds: Threshold list to record
+        current_time: Current Unix timestamp
+        price: Price at detection
+        pct_change: Percentage change at detection
+        mode: Optional preloaded mode
+        model: Optional preloaded model
+
+    Returns:
+        Number of rows inserted
+    """
+    if not thresholds:
+        return 0
+
+    try:
+        mode = mode or get_bot_setting('mode')
+        model = model or get_bot_setting('model')
+        expires_at = current_time + 86400
+
+        rows = [
+            (
+                symbol, threshold, mode, model,
+                current_time, expires_at, price, pct_change
+            )
+            for threshold in thresholds
+        ]
+
+        conn, cursor = get_connection()
+        execute_values(
+            cursor,
+            """
+            INSERT INTO alert_history (
+                symbol, threshold, mode, model,
+                first_detected_at, expires_at,
+                price_at_detection, pct_change_at_detection
+            ) VALUES %s
+            """,
+            rows
+        )
+        conn.commit()
+        logger.debug(f"Alert batch recorded: {symbol} thresholds={thresholds}")
+        return len(rows)
+    except Exception as e:
+        logger.error(f"Error recording alert batch for {symbol}: {e}")
+        conn.rollback()
+        return 0
 
 
 def get_recent_alerts(hours: int = 24) -> List[Dict]:
@@ -971,12 +1099,18 @@ def can_fire_milestone_alert(symbol: str, milestone: float, direction: str, curr
         return True
 
 
-def record_milestone_alert(symbol: str, milestone: float, direction: str,
-                           price: float, current_time: int):
+def record_milestone_alert(
+    symbol: str,
+    milestone: float,
+    direction: str,
+    price: float,
+    current_time: int,
+    cooldown_minutes: Optional[int] = None
+):
     """Record milestone alert in history for deduplication."""
     try:
         # Use milestone_cooldown (/cooldown command) for direction-agnostic 24h cooldown
-        lock_minutes = int(get_bot_setting('milestone_cooldown') or DEFAULT_MILESTONE_COOLDOWN)
+        lock_minutes = cooldown_minutes or int(get_bot_setting('milestone_cooldown') or DEFAULT_MILESTONE_COOLDOWN)
         expires_at = current_time + (lock_minutes * 60)  # Convert minutes to seconds
 
         conn, cursor = get_connection()
@@ -994,6 +1128,51 @@ def record_milestone_alert(symbol: str, milestone: float, direction: str,
     except Exception as e:
         logger.error(f"Error recording milestone for {symbol}: {e}")
         conn.rollback()
+
+
+def record_milestone_alerts_batch(
+    symbol: str,
+    milestones: List[float],
+    direction: str,
+    price: float,
+    current_time: int,
+    cooldown_minutes: Optional[int] = None
+) -> int:
+    """
+    Record multiple milestone alerts in one insert/commit.
+
+    Used for skipped milestone boundaries to reduce write amplification.
+    """
+    if not milestones:
+        return 0
+
+    try:
+        lock_minutes = cooldown_minutes or int(get_bot_setting('milestone_cooldown') or DEFAULT_MILESTONE_COOLDOWN)
+        expires_at = current_time + (lock_minutes * 60)
+
+        rows = [
+            (symbol, milestone, direction, price, current_time, expires_at)
+            for milestone in milestones
+        ]
+
+        conn, cursor = get_connection()
+        execute_values(
+            cursor,
+            """
+            INSERT INTO milestone_history (
+                symbol, milestone, direction, price_at_detection,
+                detected_at, expires_at
+            ) VALUES %s
+            """,
+            rows
+        )
+        conn.commit()
+        logger.debug(f"Milestone batch recorded: {symbol} {direction} milestones={milestones}")
+        return len(rows)
+    except Exception as e:
+        logger.error(f"Error recording milestone batch for {symbol}: {e}")
+        conn.rollback()
+        return 0
 
 
 def get_milestone_last_price(symbol: str) -> Optional[float]:

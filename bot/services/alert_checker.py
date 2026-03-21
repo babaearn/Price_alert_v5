@@ -10,12 +10,20 @@ from bot.config import (
 )
 from bot.services.database import (
     get_bot_setting, get_24h_ago_price, get_session_start_price,
-    can_fire_alert, record_alert, get_custom_thresholds,
+    can_fire_alert, record_alerts_batch, get_custom_thresholds,
     can_fire_milestone_alert, record_milestone_alert,
+    record_milestone_alerts_batch,
     get_milestone_realtime_with_trend, get_short_term_price
 )
 from bot.utils.formatters import format_alert_message, get_symbol_link
 from bot.utils.logger import logger
+
+
+def _perf_inc(perf: Optional[Dict[str, int]], key: str, amount: int = 1):
+    """Increment a lightweight scan performance counter."""
+    if perf is None:
+        return
+    perf[key] = perf.get(key, 0) + amount
 
 
 def get_crossed_thresholds(pct_change: float, custom_thresholds: List[int] = None,
@@ -125,7 +133,13 @@ def get_highest_crossed_threshold(pct_change: float) -> Optional[int]:
     return max(thresholds, key=abs)
 
 
-def get_reference_price(symbol: str, ticker: Dict, current_time: int) -> Optional[float]:
+def get_reference_price(
+    symbol: str,
+    ticker: Dict,
+    current_time: int,
+    model: Optional[str] = None,
+    mode: Optional[str] = None
+) -> Optional[float]:
     """
     Get reference price based on current calculation model.
 
@@ -140,8 +154,8 @@ def get_reference_price(symbol: str, ticker: Dict, current_time: int) -> Optiona
     Returns:
         Reference price or None if unavailable
     """
-    model = get_bot_setting('model')
-    mode = get_bot_setting('mode')
+    model = model or get_bot_setting('model')
+    mode = mode or get_bot_setting('mode')
 
     if model == 'model1':
         # Session-based (00:00 UTC reset)
@@ -293,7 +307,10 @@ async def check_and_send_alerts(
     symbol: str,
     current_price: float,
     ticker: Dict,
-    current_time: int
+    current_time: int,
+    mode: Optional[str] = None,
+    model: Optional[str] = None,
+    perf: Optional[Dict[str, int]] = None
 ) -> Tuple[bool, int]:
     """
     Check if thresholds crossed and send alerts.
@@ -312,7 +329,9 @@ async def check_and_send_alerts(
         Tuple of (alert_sent, number_of_alerts)
     """
     # Get reference price based on model
-    reference_price = get_reference_price(symbol, ticker, current_time)
+    reference_price = get_reference_price(
+        symbol, ticker, current_time, model=model, mode=mode
+    )
 
     if not reference_price or reference_price == 0:
         return False, 0
@@ -341,6 +360,7 @@ async def check_and_send_alerts(
     sorted_thresholds = sorted(crossed_thresholds, key=abs, reverse=True)
 
     for threshold in sorted_thresholds:
+        _perf_inc(perf, 'percentage_cooldown_checks')
         if can_fire_alert(symbol, threshold, current_time):
             # Send ONE alert for the highest threshold
             success = await send_alert(
@@ -349,13 +369,17 @@ async def check_and_send_alerts(
             )
 
             if success:
-                # Record alert for THIS threshold
-                record_alert(symbol, threshold, current_time, current_price, pct_change)
-                # Record ALL lower crossed thresholds in cooldown too
-                # Prevents them from firing on subsequent scans
-                for lower_t in sorted_thresholds:
-                    if abs(lower_t) < abs(threshold):
-                        record_alert(symbol, lower_t, current_time, current_price, pct_change)
+                # Record fired threshold + lower crossed thresholds in one batch write.
+                thresholds_to_record = [
+                    t for t in sorted_thresholds if abs(t) <= abs(threshold)
+                ]
+                _perf_inc(perf, 'legacy_alert_write_calls', len(thresholds_to_record))
+                _perf_inc(perf, 'new_alert_write_calls', 1)
+                _perf_inc(perf, 'alert_rows_recorded', len(thresholds_to_record))
+                record_alerts_batch(
+                    symbol, thresholds_to_record, current_time, current_price, pct_change,
+                    mode=mode, model=model
+                )
                 logger.info(f"🚨 Alert fired: {symbol} {pct_change:+.2f}% (threshold: {threshold:+d}%)")
                 return True, 1  # Return immediately - only ONE alert per scan
 
@@ -532,7 +556,13 @@ async def check_and_send_milestone_alerts(
     symbol: str,
     current_price: float,
     ticker: Dict,
-    current_time: int
+    current_time: int,
+    mode: Optional[str] = None,
+    use_short_term: Optional[bool] = None,
+    btc_milestone_step: Optional[int] = None,
+    eth_milestone_step: Optional[int] = None,
+    milestone_cooldown_minutes: Optional[int] = None,
+    perf: Optional[Dict[str, int]] = None
 ) -> Tuple[bool, int]:
     """
     Check and send milestone-based alerts for BTC/ETH.
@@ -566,7 +596,12 @@ async def check_and_send_milestone_alerts(
         return False, 0
 
     # Get milestone step for this symbol
-    milestone_step = get_btc_eth_milestone_step(symbol)
+    if 'BTC' in symbol.upper():
+        milestone_step = btc_milestone_step or get_btc_eth_milestone_step(symbol)
+    elif 'ETH' in symbol.upper():
+        milestone_step = eth_milestone_step or get_btc_eth_milestone_step(symbol)
+    else:
+        milestone_step = get_btc_eth_milestone_step(symbol)
 
     if not milestone_step:
         return False, 0
@@ -583,10 +618,11 @@ async def check_and_send_milestone_alerts(
 
     # Check if 241 mode (short-term trend) is enabled
     short_term_ref_price = None
-    use_short_term = get_bot_setting('short_term_trend') == 'true'
+    if use_short_term is None:
+        use_short_term = get_bot_setting('short_term_trend') == 'true'
 
     if use_short_term:
-        mode = get_bot_setting('mode') or 'futures'
+        mode = mode or get_bot_setting('mode') or 'futures'
         short_term_ref_price = get_short_term_price(symbol, mode, current_time)
 
     # Get milestone using REAL-TIME tracking + trend filter
@@ -610,12 +646,26 @@ async def check_and_send_milestone_alerts(
     volume_24h = float(ticker.get('turnover24h', 0))
 
     # Record ALL skipped boundaries in cooldown first (so they won't fire later)
-    for skipped_ms in skipped:
-        if can_fire_milestone_alert(symbol, skipped_ms, direction, current_time):
-            record_milestone_alert(symbol, skipped_ms, direction, current_price, current_time)
-            logger.debug(f"Skipped milestone ${skipped_ms:,} ({direction}) recorded in cooldown for {symbol}")
+    eligible_skipped = [
+        skipped_ms for skipped_ms in skipped
+        if can_fire_milestone_alert(symbol, skipped_ms, direction, current_time)
+    ]
+    _perf_inc(perf, 'milestone_cooldown_checks', len(skipped))
+    if eligible_skipped:
+        _perf_inc(perf, 'legacy_milestone_write_calls', len(eligible_skipped))
+        _perf_inc(perf, 'new_milestone_write_calls', 1)
+        _perf_inc(perf, 'milestone_rows_recorded', len(eligible_skipped))
+        record_milestone_alerts_batch(
+            symbol, eligible_skipped, direction, current_price, current_time,
+            cooldown_minutes=milestone_cooldown_minutes
+        )
+        logger.debug(
+            f"Skipped milestones recorded in cooldown for {symbol}: "
+            f"{['$' + format(ms, ',') for ms in eligible_skipped]}"
+        )
 
     # Check if we can fire this alert (cooldown per milestone)
+    _perf_inc(perf, 'milestone_cooldown_checks')
     if not can_fire_milestone_alert(symbol, milestone, direction, current_time):
         logger.debug(f"Milestone ${milestone:,} ({direction}) on cooldown for {symbol}")
         return False, 0
@@ -626,7 +676,13 @@ async def check_and_send_milestone_alerts(
     )
 
     if success:
-        record_milestone_alert(symbol, milestone, direction, current_price, current_time)
+        _perf_inc(perf, 'legacy_milestone_write_calls')
+        _perf_inc(perf, 'new_milestone_write_calls')
+        _perf_inc(perf, 'milestone_rows_recorded')
+        record_milestone_alert(
+            symbol, milestone, direction, current_price, current_time,
+            cooldown_minutes=milestone_cooldown_minutes
+        )
         logger.info(f"🎯 Milestone fired: {symbol} ${milestone:,.0f} ({direction}) | 24h: {pct_change:+.2f}%")
         if skipped:
             logger.info(f"   Skipped milestones in cooldown: {['$' + f'{m:,}' for m in skipped]}")
