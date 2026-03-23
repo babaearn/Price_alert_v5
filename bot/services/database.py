@@ -208,6 +208,24 @@ def create_schema():
         ON scanner_logs(created_at)
     """)
 
+    # Persistent lifetime stats (not affected by scanner_logs cleanup)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS bot_lifetime_stats (
+            id INTEGER PRIMARY KEY,
+            total_scans BIGINT NOT NULL DEFAULT 0,
+            total_alerts BIGINT NOT NULL DEFAULT 0,
+            first_scan_at TIMESTAMP NULL,
+            last_scan_at TIMESTAMP NULL,
+            updated_at TIMESTAMP DEFAULT NOW()
+        )
+    """)
+
+    cursor.execute("""
+        INSERT INTO bot_lifetime_stats (id, total_scans, total_alerts, first_scan_at, last_scan_at)
+        VALUES (1, 0, 0, NULL, NULL)
+        ON CONFLICT (id) DO NOTHING
+    """)
+
     # Session prices (for Model 1 only)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS session_prices (
@@ -704,6 +722,18 @@ def log_scan(scan_count: int, pairs_scanned: int, alerts_sent: int,
             VALUES (%s, %s, %s, %s, %s)
         """, (scan_count, pairs_scanned, alerts_sent, errors_count, duration_ms))
 
+        # Update persistent lifetime counters in the same transaction.
+        cursor.execute("""
+            UPDATE bot_lifetime_stats
+            SET
+                total_scans = total_scans + 1,
+                total_alerts = total_alerts + %s,
+                first_scan_at = COALESCE(first_scan_at, NOW()),
+                last_scan_at = NOW(),
+                updated_at = NOW()
+            WHERE id = 1
+        """, (alerts_sent,))
+
         conn.commit()
 
     except Exception as e:
@@ -770,28 +800,39 @@ def get_all_time_stats() -> Dict:
     try:
         conn, cursor = get_connection()
 
-        # Get total alerts and date range
+        # Read from persistent counters (not deleted by log retention cleanup)
         cursor.execute("""
             SELECT
-                COALESCE(SUM(alerts_sent), 0) as total_alerts,
-                MIN(created_at) as first_scan,
-                MAX(created_at) as last_scan,
-                COUNT(*) as total_scans
-            FROM scanner_logs
+                total_alerts,
+                total_scans,
+                first_scan_at,
+                last_scan_at
+            FROM bot_lifetime_stats
+            WHERE id = 1
         """)
 
         result = cursor.fetchone()
 
+        if not result:
+            return {
+                'total_alerts': 0,
+                'days_active': 0,
+                'avg_per_day': 0,
+                'total_scans': 0,
+                'first_scan': None,
+                'last_scan': None
+            }
+
         total_alerts = int(result['total_alerts'] or 0)
-        first_scan = result['first_scan']
-        last_scan = result['last_scan']
+        first_scan = result['first_scan_at']
+        last_scan = result['last_scan_at']
         total_scans = int(result['total_scans'] or 0)
 
         # Calculate days active
         if first_scan and last_scan:
             days_active = max(1, (last_scan - first_scan).days + 1)
         else:
-            days_active = 1
+            days_active = 0
 
         # Calculate average per day
         avg_per_day = round(total_alerts / days_active, 1) if days_active > 0 else 0
