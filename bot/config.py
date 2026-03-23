@@ -77,6 +77,7 @@ SCANNER_LOG_DAYS = 7
 # Logging
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
 LOG_FORMAT = '%(asctime)s | %(levelname)s | %(name)s | %(message)s'
+PERF_METRICS_ENABLED = os.getenv('PERF_METRICS_ENABLED', 'false').lower() == 'true'
 
 # Validation
 def validate_config():

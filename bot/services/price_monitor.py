@@ -6,7 +6,7 @@ from typing import Optional
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from telegram import Bot
 
-from bot.config import DEFAULT_SCAN_INTERVAL
+from bot.config import DEFAULT_SCAN_INTERVAL, PERF_METRICS_ENABLED
 from bot.services.database import (
     get_bot_setting, get_bot_settings, store_price_snapshot,
     store_price_snapshots_batch, log_scan
@@ -143,24 +143,26 @@ async def scan_prices():
     alerts_sent = 0
     errors_count = 0
     pairs_processed = 0
-    perf = {
-        # Snapshot write amplification (largest DB cost driver)
-        'legacy_snapshot_write_calls': 0,
-        'new_snapshot_write_calls': 0,
-        'snapshot_rows_recorded': 0,
-        # Settings read reduction from scan-level cache
-        'legacy_settings_reads': 0,
-        'new_settings_reads': 0,
-        # Alert/milestone cooldown write comparison (filled by alert_checker)
-        'legacy_alert_write_calls': 0,
-        'new_alert_write_calls': 0,
-        'alert_rows_recorded': 0,
-        'legacy_milestone_write_calls': 0,
-        'new_milestone_write_calls': 0,
-        'milestone_rows_recorded': 0,
-        'percentage_cooldown_checks': 0,
-        'milestone_cooldown_checks': 0
-    }
+    perf = None
+    if PERF_METRICS_ENABLED:
+        perf = {
+            # Snapshot write amplification (largest DB cost driver)
+            'legacy_snapshot_write_calls': 0,
+            'new_snapshot_write_calls': 0,
+            'snapshot_rows_recorded': 0,
+            # Settings read reduction from scan-level cache
+            'legacy_settings_reads': 0,
+            'new_settings_reads': 0,
+            # Alert/milestone cooldown write comparison (filled by alert_checker)
+            'legacy_alert_write_calls': 0,
+            'new_alert_write_calls': 0,
+            'alert_rows_recorded': 0,
+            'legacy_milestone_write_calls': 0,
+            'new_milestone_write_calls': 0,
+            'milestone_rows_recorded': 0,
+            'percentage_cooldown_checks': 0,
+            'milestone_cooldown_checks': 0
+        }
 
     try:
         # Get scan settings once to reduce DB chatter in hot path.
@@ -175,8 +177,9 @@ async def scan_prices():
             'short_term_trend',
             'milestone_cooldown'
         ])
-        perf['legacy_settings_reads'] += 9
-        perf['new_settings_reads'] += 1
+        if perf is not None:
+            perf['legacy_settings_reads'] += 9
+            perf['new_settings_reads'] += 1
 
         mode = settings.get('mode') or 'futures'
         model = settings.get('model') or 'model2'
@@ -255,21 +258,25 @@ async def scan_prices():
 
         # Flush buffered snapshots once at end of scan.
         if snapshot_rows:
-            perf['legacy_snapshot_write_calls'] += len(snapshot_rows)
-            perf['snapshot_rows_recorded'] += len(snapshot_rows)
+            if perf is not None:
+                perf['legacy_snapshot_write_calls'] += len(snapshot_rows)
+                perf['snapshot_rows_recorded'] += len(snapshot_rows)
             inserted = store_price_snapshots_batch(snapshot_rows)
             if inserted != len(snapshot_rows):
                 logger.warning(
                     f"Snapshot batch partial/failed: inserted {inserted}/{len(snapshot_rows)}"
                 )
-                perf['new_snapshot_write_calls'] += 1
+                if perf is not None:
+                    perf['new_snapshot_write_calls'] += 1
                 # Fallback to single-row writes to preserve behavior during transient DB issues.
                 if inserted == 0:
                     for symbol, snap_mode, snap_price, snap_ts in snapshot_rows:
                         store_price_snapshot(symbol, snap_mode, snap_price, snap_ts)
-                    perf['new_snapshot_write_calls'] += len(snapshot_rows)
+                    if perf is not None:
+                        perf['new_snapshot_write_calls'] += len(snapshot_rows)
             else:
-                perf['new_snapshot_write_calls'] += 1
+                if perf is not None:
+                    perf['new_snapshot_write_calls'] += 1
 
         duration_ms = int((time.time() - start_time) * 1000)
 
@@ -289,43 +296,44 @@ async def scan_prices():
             )
 
         # Lightweight perf/cost metrics (legacy estimate vs current path)
-        legacy_total_writes = (
-            perf['legacy_snapshot_write_calls']
-            + perf['legacy_alert_write_calls']
-            + perf['legacy_milestone_write_calls']
-        )
-        new_total_writes = (
-            perf['new_snapshot_write_calls']
-            + perf['new_alert_write_calls']
-            + perf['new_milestone_write_calls']
-        )
-        write_reduction_pct = (
-            ((legacy_total_writes - new_total_writes) / legacy_total_writes) * 100
-            if legacy_total_writes > 0 else 0.0
-        )
+        if perf is not None:
+            legacy_total_writes = (
+                perf['legacy_snapshot_write_calls']
+                + perf['legacy_alert_write_calls']
+                + perf['legacy_milestone_write_calls']
+            )
+            new_total_writes = (
+                perf['new_snapshot_write_calls']
+                + perf['new_alert_write_calls']
+                + perf['new_milestone_write_calls']
+            )
+            write_reduction_pct = (
+                ((legacy_total_writes - new_total_writes) / legacy_total_writes) * 100
+                if legacy_total_writes > 0 else 0.0
+            )
 
-        metrics_line = (
-            f"Perf scan #{_scan_count} | "
-            f"db_ops_before={legacy_total_writes} db_ops_after={new_total_writes} "
-            f"write_reduction={write_reduction_pct:.1f}% | "
-            f"snapshots rows={perf['snapshot_rows_recorded']} "
-            f"calls_before={perf['legacy_snapshot_write_calls']} "
-            f"calls_after={perf['new_snapshot_write_calls']} | "
-            f"alerts rows={perf['alert_rows_recorded']} "
-            f"calls_before={perf['legacy_alert_write_calls']} "
-            f"calls_after={perf['new_alert_write_calls']} | "
-            f"milestones rows={perf['milestone_rows_recorded']} "
-            f"calls_before={perf['legacy_milestone_write_calls']} "
-            f"calls_after={perf['new_milestone_write_calls']} | "
-            f"settings_reads before={perf['legacy_settings_reads']} "
-            f"after={perf['new_settings_reads']} | "
-            f"cooldown_checks pct={perf['percentage_cooldown_checks']} "
-            f"ms={perf['milestone_cooldown_checks']}"
-        )
-        if alerts_sent > 0 or (_scan_count % 20 == 0):
-            logger.info(metrics_line)
-        else:
-            logger.debug(metrics_line)
+            metrics_line = (
+                f"Perf scan #{_scan_count} | "
+                f"db_ops_before={legacy_total_writes} db_ops_after={new_total_writes} "
+                f"write_reduction={write_reduction_pct:.1f}% | "
+                f"snapshots rows={perf['snapshot_rows_recorded']} "
+                f"calls_before={perf['legacy_snapshot_write_calls']} "
+                f"calls_after={perf['new_snapshot_write_calls']} | "
+                f"alerts rows={perf['alert_rows_recorded']} "
+                f"calls_before={perf['legacy_alert_write_calls']} "
+                f"calls_after={perf['new_alert_write_calls']} | "
+                f"milestones rows={perf['milestone_rows_recorded']} "
+                f"calls_before={perf['legacy_milestone_write_calls']} "
+                f"calls_after={perf['new_milestone_write_calls']} | "
+                f"settings_reads before={perf['legacy_settings_reads']} "
+                f"after={perf['new_settings_reads']} | "
+                f"cooldown_checks pct={perf['percentage_cooldown_checks']} "
+                f"ms={perf['milestone_cooldown_checks']}"
+            )
+            if alerts_sent > 0 or (_scan_count % 20 == 0):
+                logger.info(metrics_line)
+            else:
+                logger.debug(metrics_line)
 
     except Exception as e:
         logger.error(f"Scan error: {e}")
